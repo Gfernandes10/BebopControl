@@ -1,0 +1,7 @@
+Symlinking /root/mybebop_ws/devel/lib/pkgconfig/rotors_gazebo.pc
+Symlinking /root/mybebop_ws/devel/lib/rotors_gazebo/hovering_example
+Symlinking /root/mybebop_ws/devel/lib/rotors_gazebo/fake_driver
+Symlinking /root/mybebop_ws/devel/lib/rotors_gazebo/waypoint_publisher
+Symlinking /root/mybebop_ws/devel/lib/rotors_gazebo/waypoint_publisher_file
+Symlinking /root/mybebop_ws/devel/share/rotors_gazebo/cmake/rotors_gazeboConfig.cmake
+Symlinking /root/mybebop_ws/devel/share/rotors_gazebo/cmake/rotors_gazeboConfig-version.cmake

@@ -1,0 +1,6 @@
+joystick_drivers/spacenav_node
+/root/mybebop_ws/devel/.private/spacenav_node/cmake.lock /root/mybebop_ws/devel/./cmake.lock
+/root/mybebop_ws/devel/.private/spacenav_node/lib/spacenav_node/spacenav_node /root/mybebop_ws/devel/lib/spacenav_node/spacenav_node
+/root/mybebop_ws/devel/.private/spacenav_node/lib/pkgconfig/spacenav_node.pc /root/mybebop_ws/devel/lib/pkgconfig/spacenav_node.pc
+/root/mybebop_ws/devel/.private/spacenav_node/share/spacenav_node/cmake/spacenav_nodeConfig.cmake /root/mybebop_ws/devel/share/spacenav_node/cmake/spacenav_nodeConfig.cmake
+/root/mybebop_ws/devel/.private/spacenav_node/share/spacenav_node/cmake/spacenav_nodeConfig-version.cmake /root/mybebop_ws/devel/share/spacenav_node/cmake/spacenav_nodeConfig-version.cmake

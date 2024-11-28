@@ -1,0 +1,8 @@
+Symlinking /root/mybebop_ws/devel/lib/rotors_evaluation/cmake.lock
+Symlinking /root/mybebop_ws/devel/lib/rotors_evaluation/waypoints_eval.py
+Symlinking /root/mybebop_ws/devel/lib/rotors_evaluation/hovering_eval.py
+Symlinking /root/mybebop_ws/devel/lib/rotors_evaluation/disturbance_eval.py
+Symlinking /root/mybebop_ws/devel/lib/pkgconfig/rotors_evaluation.pc
+Symlinking /root/mybebop_ws/devel/lib/python3/dist-packages/rosbag_tools/__init__.py
+Symlinking /root/mybebop_ws/devel/share/rotors_evaluation/cmake/rotors_evaluationConfig-version.cmake
+Symlinking /root/mybebop_ws/devel/share/rotors_evaluation/cmake/rotors_evaluationConfig.cmake

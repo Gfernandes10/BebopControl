@@ -1,0 +1,4 @@
+Symlinking /root/mybebop_ws/devel/lib/spacenav_node/spacenav_node
+Symlinking /root/mybebop_ws/devel/lib/pkgconfig/spacenav_node.pc
+Symlinking /root/mybebop_ws/devel/share/spacenav_node/cmake/spacenav_nodeConfig.cmake
+Symlinking /root/mybebop_ws/devel/share/spacenav_node/cmake/spacenav_nodeConfig-version.cmake
