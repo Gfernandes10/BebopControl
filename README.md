@@ -13,17 +13,15 @@ sudo apt install libusb-dev python3-osrf-pycommon libspnav-dev libbluetooth-dev 
 sudo apt install libavahi-client-dev
 sudo apt install ros-noetic-mavros ros-noetic-octomap-ros ros-noetic-joy ros-noetic-joy-teleop 
 sudo apt install ros-noetic-teleop-twist-joy
+sudo apt-get install python3-wstool
 sudo ln -s /usr/bin/python3 /usr/bin/python
 ```
-Add this line in your ~/.bashrc :
-```bash
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:~/BebopControl/devel/lib/parrot_arsdk
-```
-
 
 ```bash
 git clone https://github.com/Gfernandes10/BebopControl.git
 cd BebopControl
+echo 'export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:~/BebopControl/devel/lib/parrot_arsdk' >> ~/.bashrc
+wstool update -t src
 rosdep install --from-paths src --ignore-src -r -y
 catkin build
 source devel/setup.bash
