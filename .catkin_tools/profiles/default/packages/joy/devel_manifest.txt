@@ -1,6 +1,0 @@
-joystick_drivers/joy
-/root/mybebop_ws/devel/.private/joy/cmake.lock /root/mybebop_ws/devel/./cmake.lock
-/root/mybebop_ws/devel/.private/joy/lib/joy/joy_node /root/mybebop_ws/devel/lib/joy/joy_node
-/root/mybebop_ws/devel/.private/joy/lib/pkgconfig/joy.pc /root/mybebop_ws/devel/lib/pkgconfig/joy.pc
-/root/mybebop_ws/devel/.private/joy/share/joy/cmake/joyConfig-version.cmake /root/mybebop_ws/devel/share/joy/cmake/joyConfig-version.cmake
-/root/mybebop_ws/devel/.private/joy/share/joy/cmake/joyConfig.cmake /root/mybebop_ws/devel/share/joy/cmake/joyConfig.cmake

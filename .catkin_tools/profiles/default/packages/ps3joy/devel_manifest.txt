@@ -1,6 +1,0 @@
-joystick_drivers/ps3joy
-/root/mybebop_ws/devel/.private/ps3joy/cmake.lock /root/mybebop_ws/devel/./cmake.lock
-/root/mybebop_ws/devel/.private/ps3joy/lib/ps3joy/sixpair /root/mybebop_ws/devel/lib/ps3joy/sixpair
-/root/mybebop_ws/devel/.private/ps3joy/lib/pkgconfig/ps3joy.pc /root/mybebop_ws/devel/lib/pkgconfig/ps3joy.pc
-/root/mybebop_ws/devel/.private/ps3joy/share/ps3joy/cmake/ps3joyConfig-version.cmake /root/mybebop_ws/devel/share/ps3joy/cmake/ps3joyConfig-version.cmake
-/root/mybebop_ws/devel/.private/ps3joy/share/ps3joy/cmake/ps3joyConfig.cmake /root/mybebop_ws/devel/share/ps3joy/cmake/ps3joyConfig.cmake

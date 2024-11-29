@@ -1,5 +1,0 @@
-BebopControl
-/root/mybebop_ws/devel/.private/BebopControl/cmake.lock /root/mybebop_ws/devel/./cmake.lock
-/root/mybebop_ws/devel/.private/BebopControl/lib/pkgconfig/BebopControl.pc /root/mybebop_ws/devel/lib/pkgconfig/BebopControl.pc
-/root/mybebop_ws/devel/.private/BebopControl/share/BebopControl/cmake/BebopControlConfig.cmake /root/mybebop_ws/devel/share/BebopControl/cmake/BebopControlConfig.cmake
-/root/mybebop_ws/devel/.private/BebopControl/share/BebopControl/cmake/BebopControlConfig-version.cmake /root/mybebop_ws/devel/share/BebopControl/cmake/BebopControlConfig-version.cmake

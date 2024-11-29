@@ -1,2 +1,0 @@
-joystick_drivers/joystick_drivers
-/root/mybebop_ws/devel/.private/joystick_drivers/cmake.lock /root/mybebop_ws/devel/./cmake.lock
