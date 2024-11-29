@@ -7,6 +7,7 @@ src/parrot_arsdk
 src/mav_comm
 src/iROS_drone
 src/joystick_drivers
+src/bebop_autonomy
 logs/
 .catkin_tools/
 
