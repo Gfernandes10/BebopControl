@@ -1,3 +1,5 @@
 - git: {local-name: mav_comm, uri: 'https://github.com/ethz-asl/mav_comm.git', version: 'master'}
 - git: {local-name: iROS_drone, uri: 'https://github.com/simonernst/iROS_drone.git', version: 'noetic'}
 - git: {local-name: joystick_drivers, uri: 'https://github.com/ros-drivers/joystick_drivers.git', version: 'master'}
+- git: {local-name: parrot_arsdk, uri: 'https://github.com/antonellabarisic/parrot_arsdk.git', version: 'noetic_dev'}
+- git: {local-name: bebop_autonomy, uri: 'https://github.com/Gfernandes10/bebop_autonomy.git', version: 'indigo-devel'}

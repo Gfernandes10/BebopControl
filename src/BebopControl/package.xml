@@ -64,8 +64,8 @@
   <exec_depend>roscpp</exec_depend>
   <exec_depend>rospy</exec_depend>
   <exec_depend>std_msgs</exec_depend>
-  <build_depend>joystick_drivers</build_depend>
-  <exec_depend>joystick_drivers</exec_depend>
+  <!-- <build_depend>joystick_drivers</build_depend>
+  <exec_depend>joystick_drivers</exec_depend> -->
   <build_depend>libusb-dev</build_depend>
   <exec_depend>libusb-dev</exec_depend>
 
