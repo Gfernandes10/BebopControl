@@ -68,8 +68,10 @@
   <exec_depend>joystick_drivers</exec_depend> -->
   <build_depend>libusb-dev</build_depend>
   <exec_depend>libusb-dev</exec_depend>
-
-
+  <build_depend>geometry_msgs</build_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <build_depend>sensor_msgs</build_depend>
+  <exec_depend>sensor_msgs</exec_depend>
   <!-- The export tag contains other, unspecified, tags -->
   <export>
     <!-- Other tools can request additional information be placed here -->

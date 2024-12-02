@@ -12,8 +12,9 @@ sudo apt install build-essential python3-rosdep python3-catkin-tools
 sudo apt install libusb-dev python3-osrf-pycommon libspnav-dev libbluetooth-dev libcwiid-dev libgoogle-glog-dev
 sudo apt install libavahi-client-dev
 sudo apt install ros-noetic-mavros ros-noetic-octomap-ros ros-noetic-joy ros-noetic-joy-teleop 
-sudo apt install ros-noetic-teleop-twist-joy
+sudo apt install ros-noetic-teleop-twist-joy noetic-teleop-twist-keyboard
 sudo apt-get install python3-wstool
+sudo apt-get install libncurses5-dev libncursesw5-dev
 sudo ln -s /usr/bin/python3 /usr/bin/python
 ```
 

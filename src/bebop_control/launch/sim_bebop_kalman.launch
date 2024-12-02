@@ -50,5 +50,7 @@
   <node name="teleop_twist_keyboard" pkg="teleop_twist_keyboard" type="teleop_twist_keyboard.py" >
     <remap from="cmd_vel" to="bebop/cmd_vel" />
   </node>
+  <node name="bebop_localization" pkg="bebop_localization" type="bebop_localization_node"  />
   <node name="keybrd_bebop_control" pkg="bebop_control" type="keybrd_bebop_control_node"  />
-</launch>
+
+  </launch>

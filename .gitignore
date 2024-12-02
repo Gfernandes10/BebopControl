@@ -8,6 +8,7 @@ src/mav_comm
 src/iROS_drone
 src/joystick_drivers
 src/bebop_autonomy
+src/bebop_localization
 logs/
 .catkin_tools/
 

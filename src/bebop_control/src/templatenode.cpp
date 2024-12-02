@@ -7,19 +7,19 @@ class MyRosNode
 public:
     MyRosNode(ros::NodeHandle& nh)
     {
-        // Inicialize parâmetros
+        // Initialize parameters
         initializeParameters(nh);
 
-        // Inicialize publishers
+        // Initialize publishers
         joy_pub_ = nh.advertise<sensor_msgs::Joy>("joy", 10);
 
-        // Inicialize subscribers
+        // Initialize subscribers
         joy_sub_ = nh.subscribe("joy", 10, &MyRosNode::joyCallback, this);
 
-        // Inicialize serviços
+        // Initialize services
         // service_ = nh.advertiseService("service_name", &MyRosNode::serviceCallback, this);
 
-        // Inicialize timers
+        // Initialize timers
         timer_ = nh.createTimer(ros::Duration(1.0), &MyRosNode::timerCallback, this);
     }
 
@@ -29,42 +29,43 @@ public:
     }
 
 private:
-    // Função para inicializar parâmetros
+    // Function to initialize parameters
     void initializeParameters(ros::NodeHandle& nh)
     {
+        int default_value = 0; // Define default_value with the same type as param_value_
         nh.param("param_name", param_value_, default_value);
-        // Adicione mais parâmetros conforme necessário
+        // Add more parameters as needed
     }
 
-    // Callback para o subscriber
+    // Callback for the subscriber
     void joyCallback(const sensor_msgs::Joy::ConstPtr& msg)
     {
         ROS_INFO("Received joystick input");
-        // Processar os comandos do joystick aqui
+        // Process joystick commands here
     }
 
-    // Callback para o serviço
+    // Callback for the service
     // bool serviceCallback(std_srvs::Empty::Request& req, std_srvs::Empty::Response& res)
     // {
     //     ROS_INFO("Service called");
-    //     // Processar a chamada do serviço aqui
+    //     // Process service call here
     //     return true;
     // }
 
-    // Callback para o timer
+    // Callback for the timer
     void timerCallback(const ros::TimerEvent&)
     {
         ROS_INFO("Timer triggered");
-        // Processar eventos do timer aqui
+        // Process timer events here
     }
 
-    // Membros da classe
+    // Class members
     ros::Publisher joy_pub_;
     ros::Subscriber joy_sub_;
     // ros::ServiceServer service_;
     ros::Timer timer_;
 
-    // Parâmetros
+    // Parameters
     int param_value_;
 };
 
