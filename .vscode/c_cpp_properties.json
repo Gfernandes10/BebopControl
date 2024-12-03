@@ -4,7 +4,7 @@
             "name": "Linux",
             "includePath": [
                 "${workspaceFolder}/**",
-                "/opt/ros/noetic/include", // Atualize este caminho de acordo com a sua instalação do ROS
+                "/opt/ros/noetic/include/", // Atualize este caminho de acordo com a sua instalação do ROS
                 "/usr/include/eigen3"
             ],
             "defines": [],
