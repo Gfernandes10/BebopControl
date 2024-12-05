@@ -139,6 +139,7 @@ include_directories(
 ## The recommended prefix ensures that target names across packages don't collide
 # add_executable(${PROJECT_NAME}_node src/BebopControl_node.cpp)
 add_executable(keybrd_bebop_control_node src/keybrd_bebop_control.cpp)
+add_executable(bebop_control src/bebop_control.cpp)
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
@@ -149,11 +150,15 @@ add_executable(keybrd_bebop_control_node src/keybrd_bebop_control.cpp)
 ## Add cmake target dependencies of the executable
 ## same as for the library above
 add_dependencies(keybrd_bebop_control_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+add_dependencies(bebop_control ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 ## Specify libraries to link a library or executable target against
 target_link_libraries(keybrd_bebop_control_node
   ${catkin_LIBRARIES}
   ncurses
+)
+target_link_libraries(bebop_control
+  ${catkin_LIBRARIES}
 )
 
 #############
