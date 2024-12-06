@@ -12,11 +12,6 @@
     <arg name="joy" default="/dev/input/js2" />
     <arg name="joy_yaml" default="$(find bebop_control)/resources/ps4.yaml" />
 
-<!-- Initiate Joystick -->
-    <node name="joy_node" pkg="joy" type="joy_node">
-      <param name="dev" value="$(arg joy)" />
-    </node>
-
      <node name="bebop_control" pkg="bebop_control" type="bebop_control" output="screen">
         <rosparam command="load" file="$(arg joy_yaml)" />
         <!-- Add any necessary parameters here -->

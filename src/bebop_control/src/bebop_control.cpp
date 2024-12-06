@@ -3,6 +3,17 @@
 #include <std_msgs/Empty.h>
 #include <sensor_msgs/Joy.h>
 #include <geometry_msgs/Twist.h>
+#include <termios.h>
+#include <unistd.h>
+#include <iostream>
+
+// Define key codes for arrow keys and other controls
+#define KEYCODE_L 0x44
+#define KEYCODE_R 0x43
+#define KEYCODE_U 0x41
+#define KEYCODE_D 0x42
+#define KEYCODE_A 0x61
+#define KEYCODE_S 0x64
 
 class bebop_control
 {
@@ -11,7 +22,6 @@ public:
     ros::Publisher takeoff_pub_;
     ros::Publisher land_pub_;
     ros::Publisher cmd_vel_pub_;
-    ros::Subscriber joy_sub_;
     //Parameters
     int axis_roll_;
     int axis_pitch_;
@@ -28,6 +38,7 @@ public:
     bool control_ident_y_ = false;
     bool control_ident_x_ = false;
     bool control_ident_yaw_ = false;
+    bool enable_control_keyboard_ = true;
     //Messages Declaration
     std_msgs::Empty empty_msg;
     geometry_msgs::Twist twist_msg;
@@ -41,7 +52,7 @@ public:
         land_pub_ = nh.advertise<std_msgs::Empty>("bebop/land", 10);
         cmd_vel_pub_ = nh.advertise<geometry_msgs::Twist>("bebop/cmd_vel", 10);
         // Initialize subscribers
-        joy_sub_ = nh.subscribe("joy", 10, &bebop_control::joyCallback, this);
+
 
         // Initialize services
         // service_ = nh.advertiseService("service_name", &bebop_control::serviceCallback, this);
@@ -53,7 +64,7 @@ public:
         ros::spin();
     }
 
-private:
+
     // Function to initialize parameters
     void initializeParameters(ros::NodeHandle& nh)
     {
@@ -72,128 +83,225 @@ private:
         // Add more parameters as needed
     }
 
-    // Callback for the subscriber
-    void joyCallback(const sensor_msgs::Joy::ConstPtr& msg)
+    //Function to control drone from keyboad
+    void teleopKeyboard()
     {
-        ROS_INFO("Received joystick input");
-        // Process joystick commands here
-        // Read joystick axes
-        double roll = msg->axes[axis_roll_];
-        double pitch = msg->axes[axis_pitch_];
-        double thrust = msg->axes[axis_thrust_];
-        double yaw = msg->axes[axis_yaw_];
+        char key;
+        struct termios oldt, newt;
 
-        // Read joystick buttons
-        bool takeoff = msg->buttons[button_takeoff_];
-        bool land = msg->buttons[button_land_];
-        bool emergency = msg->buttons[button_emergency_];
-        bool ident_z = msg->buttons[button_ident_z_];
-        bool ident_y = msg->buttons[button_ident_y_];
-        bool ident_x = msg->buttons[button_ident_x_];
-        bool ident_yaw = msg->buttons[button_ident_yaw_];
+        // Get the terminal settings for stdin
+        tcgetattr(STDIN_FILENO, &oldt);
+        newt = oldt;
+        // Disable canonical mode and echo
+        newt.c_lflag &= ~(ICANON | ECHO);
+        // Set the new terminal settings
+        tcsetattr(STDIN_FILENO, TCSANOW, &newt);
 
-        // Log the received values
-        // ROS_INFO("Roll: %f, Pitch: %f, Thrust: %f, Yaw: %f", roll, pitch, thrust, yaw);
-        // ROS_INFO("Takeoff: %d, Land: %d, Emergency: %d", takeoff, land, emergency);
-        // ROS_INFO("Ident Z: %d, Ident Y: %d, Ident X: %d, Ident Yaw: %d", ident_z, ident_y, ident_x, ident_yaw);
+        std::cout << "Reading from the keyboard and Publishing to Twist!" << std::endl;
+        std::cout << "W: Up, S: Down, A: Yaw Left, D: Yaw Right" << std::endl;
+        std::cout << "Arrow Up: Forward, Arrow Down: Backward, Arrow Left: Left, Arrow Right: Right" << std::endl;
+        std::cout << "T: Takeoff, L: Land, CTRL+C to quit." << std::endl;
 
-        if (takeoff)
-        {
-            ROS_INFO("Takeoff command received");
-            takeoff_pub_.publish(empty_msg);
-        }
-        else if (land)
-        {
-            ROS_INFO("Land command received");
-            land_pub_.publish(empty_msg);
-        }
-        else if (emergency)
-        {
-            ROS_INFO("Emergency command received");
-            twist_msg.linear.x = 0.0;
-            twist_msg.linear.y = 0.0;
-            twist_msg.linear.z = 0.0;
-            twist_msg.angular.x = 0.0;
-            twist_msg.angular.y = 0.0;
-            twist_msg.angular.z = 0.0;
-            cmd_vel_pub_.publish(twist_msg);
-        }
-        else if (ident_z)
-        {           
-            ROS_INFO("Steps Z command received");
-            control_ident_z_ = !control_ident_z_;
-            sendAlternatingStepCommand(0.1, 5.0, "z", control_ident_z_);
-            ROS_INFO("Steps Z command ended");
-        }
-        else if (ident_y)
-        {
-            ROS_INFO("Steps Y command received");
-            control_ident_y_ = !control_ident_y_;
-            sendAlternatingStepCommand(0.1, 5.0, "y", control_ident_y_);
-            ROS_INFO("Steps Y command ended");
-        }
-        else if (ident_x)
-        {
-            ROS_INFO("Steps X command received");
-            control_ident_x_ = !control_ident_x_;
-            sendAlternatingStepCommand(0.1, 5.0, "x", control_ident_x_);
-            ROS_INFO("Steps X command ended");
-        }
-        else if (ident_yaw)
-        {
-            ROS_INFO("Steps Yaw command received");
-            control_ident_yaw_ = !control_ident_yaw_;
-            sendAlternatingStepCommand(0.1, 5.0, "yaw", control_ident_yaw_);
-            ROS_INFO("Steps Yaw command ended");
-        }
+        ros::Rate rate(200); // Set the loop frequency to 10 Hz
 
-    }
-    
-    void sendAlternatingStepCommand(double amp, double temp, const std::string& axis, bool control_ident)
-    {
-        if (control_ident)
+        while (ros::ok())
         {
-            ros::Rate rate(10); // 10 Hz
-            ros::Time start_time = ros::Time::now();
-            ros::Duration duration(temp);
-            bool positive = true;
+            // Use select to check if a key is pressed
+            fd_set set;
+            struct timeval timeout;
+            FD_ZERO(&set);
+            FD_SET(STDIN_FILENO, &set);
+            timeout.tv_sec = 0;
+            timeout.tv_usec = 100000; // 0.1 seconds
 
-            while (ros::Time::now() - start_time < duration)
+            int rv = select(STDIN_FILENO + 1, &set, NULL, NULL, &timeout);
+
+            if (rv == -1)
             {
-                if (axis == "x")
+                perror("select"); // Error occurred in select()
+            }
+            else if (rv == 0)
+            {
+                if (enable_control_keyboard_)
                 {
-                    twist_msg.linear.x = positive ? amp : -amp;
+                    // No key pressed, reset twist message
+                    twist_msg.linear.x = 0.0;
+                    twist_msg.linear.y = 0.0;
+                    twist_msg.linear.z = 0.0;
+                    twist_msg.angular.z = 0.0;
                 }
-                else if (axis == "y")
+            }
+            else
+            {
+                // Key pressed, read it
+                key = getchar();
+
+                // Check for arrow keys (escape sequences)
+                if (key == 27)
                 {
-                    twist_msg.linear.y = positive ? amp : -amp;
-                }
-                else if (axis == "z")
-                {
-                    twist_msg.linear.z = positive ? amp : -amp;
-                }
-                else if (axis == "yaw")
-                {
-                    twist_msg.angular.z = positive ? amp : -amp;
+                    key = getchar();
+                    if (key == 91)
+                    {
+                        key = getchar();
+                        switch (key)
+                        {
+                            case 'A': // Arrow Up
+                                twist_msg.linear.x = 1.0;
+                                break;
+                            case 'B': // Arrow Down
+                                twist_msg.linear.x = -1.0;
+                                break;
+                            case 'C': // Arrow Right
+                                twist_msg.linear.y = -1.0;
+                                break;
+                            case 'D': // Arrow Left
+                                twist_msg.linear.y = 1.0;
+                                break;
+                        }
+                    }
                 }
                 else
                 {
-                    ROS_WARN("Invalid axis specified");
-                    return;
-                }
+                    // // Reset twist message
+                    // twist_msg.linear.x = 0.0;
+                    // twist_msg.linear.y = 0.0;
+                    // twist_msg.linear.z = 0.0;
+                    // twist_msg.angular.z = 0.0;
 
-                cmd_vel_pub_.publish(twist_msg);
-                rate.sleep();
-                positive = !positive;
+                    switch (key)
+                    {
+                        case 'w':
+                            twist_msg.linear.z = 1.0;
+                            break;
+                        case 's':
+                            twist_msg.linear.z = -1.0;
+                            break;
+                        case 'a':
+                            twist_msg.angular.z = 1.0;
+                            break;
+                        case 'd':
+                            twist_msg.angular.z = -1.0;
+                            break;
+                        case 't':
+                            ROS_INFO("Takeoff command received");
+                            takeoff_pub_.publish(empty_msg);
+                            break;
+                        case 'l':
+                            ROS_INFO("Land command received");
+                            land_pub_.publish(empty_msg);
+                            break;
+                        case '1':
+                            control_ident_z_ = !control_ident_z_;
+                            enable_control_keyboard_ = false;
+                            // TO-DO: Make this parameters configurable
+                            sendAlternatingStepCommand(0.1, 5.0, 1.0, "z", control_ident_z_);
+                            enable_control_keyboard_ = true;
+                            break;
+                        case '2':
+                            control_ident_y_ = !control_ident_y_;
+                            enable_control_keyboard_ = false;
+                            sendAlternatingStepCommand(0.1, 5.0, 1.0, "y", control_ident_y_);
+                            enable_control_keyboard_ = true;
+                            break;
+                        case '3':
+                            control_ident_x_ = !control_ident_x_;
+                            enable_control_keyboard_ = false;
+                            sendAlternatingStepCommand(0.1, 5.0, 1.0, "x", control_ident_x_);
+                            enable_control_keyboard_ = true;
+                            break;
+                        case '4':
+                            control_ident_yaw_ = !control_ident_yaw_;
+                            enable_control_keyboard_ = false;
+                            sendAlternatingStepCommand(0.1, 5.0, 1.0, "yaw", control_ident_yaw_);
+                            enable_control_keyboard_ = true;
+                            break;
+                        case '\x03': // CTRL+C
+                            return;
+                        default:
+                            break;
+                    }
+                }
             }
+
+            cmd_vel_pub_.publish(twist_msg);
+            rate.sleep(); // Sleep to maintain the loop rate
         }
 
-        // Reset the twist message after the duration
+        // Restore the old terminal settings
+        tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+    }
+
+    void sendAlternatingStepCommand(double amp, double temp, double period_duration_, const std::string& axis, bool control_ident)
+    {
+        if (control_ident)
+        {
+            ROS_INFO("Starting alternating step command with amplitude: %f, duration: %f seconds, axis: %s", amp, temp, axis.c_str());
+
+            ros::Time start_time = ros::Time::now();
+            ros::Duration duration(temp); 
+            bool positive = true;
+            int num_periods = static_cast<int>(temp);
+            ros::Duration period_duration(period_duration_);
+
+               
+            while (ros::Time::now() - start_time < duration)
+            {
+                ros::Time period_start_time = ros::Time::now(); // Marca o tempo de início do período
+
+                // Loop enquanto a diferença entre o tempo atual e o tempo de início do período for menor que a duração do período
+                while (ros::Time::now() - period_start_time < period_duration)
+                {
+                    // Alterna o comando entre positivo e negativo
+                    if (axis == "x")
+                    {
+                        twist_msg.linear.x = positive ? amp : -amp;
+                        ROS_INFO("Setting linear.x to %f", twist_msg.linear.x);
+                    }
+                    else if (axis == "y")
+                    {
+                        twist_msg.linear.y = positive ? amp : -amp;
+                        ROS_INFO("Setting linear.y to %f", twist_msg.linear.y);
+                    }
+                    else if (axis == "z")
+                    {
+                        twist_msg.linear.z = positive ? amp : -amp;
+                        ROS_INFO("Setting linear.z to %f", twist_msg.linear.z);
+                    }
+                    else if (axis == "yaw")
+                    {
+                        twist_msg.angular.z = positive ? amp : -amp;
+                        ROS_INFO("Setting angular.z to %f", twist_msg.angular.z);
+                    }
+                    else
+                    {
+                        ROS_WARN("Invalid axis specified: %s", axis.c_str());
+                        return;
+                    }
+
+                    cmd_vel_pub_.publish(twist_msg); // Publica o comando
+
+                    // Sleep for a short duration to avoid spamming the log
+                    ros::Duration(0.1).sleep();
+                }
+
+                positive = !positive; // Alterna o sinal ao final do período
+            }
+
+            ROS_INFO("Finished alternating step command for axis: %s", axis.c_str());
+        }
+        else
+        {
+            ROS_WARN("Control identification is not enabled.");
+        }
+
+        // Reseta a mensagem twist após a duração
         twist_msg.linear.x = 0.0;
         twist_msg.linear.y = 0.0;
         twist_msg.linear.z = 0.0;
         twist_msg.angular.z = 0.0;
         cmd_vel_pub_.publish(twist_msg);
+
+        ROS_INFO("Reset twist message after duration.");
     }
 };
 
@@ -201,8 +309,9 @@ int main(int argc, char** argv)
 {
     ros::init(argc, argv, "my_ros_node");
     ros::NodeHandle nh;
-
+    
     bebop_control node(nh);
+    node.teleopKeyboard();
     node.spin();
 
     return 0;
