@@ -5,6 +5,8 @@
 #include <geometry_msgs/Twist.h>
 #include <termios.h>
 #include <unistd.h>
+#include <tf/transform_datatypes.h>
+#include <Eigen/Dense>
 #include <iostream>
 #include <thread>
 #include <atomic>
@@ -45,7 +47,12 @@ public:
     //Messages Declaration
     std_msgs::Empty empty_msg;
     geometry_msgs::Twist twist_msg;
-    geometry_msgs::Pose position_msg;
+    nav_msgs::Odometry position_msg;
+    Eigen::VectorXd x_estates = Eigen::VectorXd::Zero(12);
+    Eigen::VectorXd integral_error = Eigen::VectorXd::Zero(4);
+    Eigen::VectorXd error = Eigen::VectorXd::Zero(4);
+    Eigen::Matrix<double, 4, 12> Kx;
+    Eigen::Matrix<double, 4, 4> Ki;
     //Loggers
     std::unique_ptr<CSVLogger> csv_logger_u_control_;
     std::unique_ptr<CSVLogger> csv_logger_desired_trajectory_;
@@ -112,7 +119,7 @@ public:
     {
         desired_pose_.x = 0.0;
         desired_pose_.y = 0.0;
-        desired_pose_.z = 0.0;
+        desired_pose_.z = 0.5;
         desired_pose_.yaw = 0.0;
         nh_.param("amp_ident_x", amp_ident_x_, 0.1);
         nh_.param("amp_ident_y", amp_ident_y_, 0.1);
@@ -120,6 +127,14 @@ public:
         nh_.param("amp_ident_yaw", amp_ident_yaw_, 0.5);
         nh_.param("temp_ident", temp_ident_, 5.0);
         nh_.param("period_duration", period_duration_, 1.0);
+        Kx << -0.0287, -0.0262, -0.7636, -0.1476, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                0.0, 0.0, 0.0, 0.0, 0.0199,0.0130,-0.5906,-0.1791, 0.0, 0.0, 0.0, 0.0,
+                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -3.6558,-3.7091, 0.0, 0.0,
+                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -3.0674,-3.3309;
+        Ki << 0.00246, 0.0, 0.0, 0.0,
+                0.0, 0.00278, 0.0, 0.0,
+                0.0, 0.0, 0.01574, 0.0,
+                0.0, 0.0, 0.0, 0.0388;
     }
 
     //Function to control drone from keyboad
@@ -367,17 +382,46 @@ public:
             // Handle interruption (e.g., stop the control law)
             return;
         }
+        position_msg = *msg;
+        tf::Quaternion quaternion;      
+        tf::quaternionMsgToTF(position_msg.pose.pose.orientation, quaternion);
+        double roll, pitch, yaw;
+        tf::Matrix3x3(quaternion).getRPY(roll, pitch, yaw);
+        double x = position_msg.pose.pose.position.x;
+        double dx = position_msg.twist.twist.linear.x;
+        double pitch_ = pitch;
+        double dpitch = position_msg.twist.twist.angular.y;
+        double y = position_msg.pose.pose.position.y;
+        double dy = position_msg.twist.twist.linear.y;
+        double roll_ = roll;
+        double droll = position_msg.twist.twist.angular.x;
+        double z = position_msg.pose.pose.position.z;
+        double dz = position_msg.twist.twist.linear.z;
+        double yaw_ = yaw;
+        double dyaw = position_msg.twist.twist.angular.z;
+        x_estates << x, dx, pitch_, dpitch, y, dy, roll_, droll, z, dz, yaw_, dyaw;
+        // Calculate error
+        error << desired_pose_.x - x, desired_pose_.y - y, desired_pose_.z - z, desired_pose_.yaw - yaw;
+        // Update integral error
+        integral_error += error;
+
+        // Log the values
+        // ROS_INFO_STREAM("x_estates: " << x_estates.transpose());
+        // ROS_INFO_STREAM("error: " << error.transpose());
+        // ROS_INFO_STREAM("integral_error: " << integral_error.transpose());
 
 
+
+        // Calculate control input
+
+        Eigen::VectorXd u = Kx * x_estates + Ki * integral_error;
+        twist_msg.linear.x = u(0);
+        twist_msg.linear.y = u(1);
+        twist_msg.linear.z = u(2);
+        twist_msg.angular.z = u(3);
+        // Publish the control input
+        publishCmdVel();
         // ROS_INFO("Position received: x = %f, y = %f, z = %f", msg->pose.pose.position.x, msg->pose.pose.position.y, msg->pose.pose.position.z);
-        // Implement your control logic based on the received position
-        // Example: Adjust the twist message based on the position
-        // twist_msg.linear.x = msg->position.x;
-        // twist_msg.linear.y = msg->position.y;
-        // twist_msg.linear.z = msg->position.z;
-        // twist_msg.angular.z = msg->orientation.z;
-
-        // cmd_vel_pub_.publish(twist_msg);
     }
     void publishCmdVel()
     {
