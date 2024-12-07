@@ -1,86 +1,125 @@
 #include <ros/ros.h>
 #include <std_msgs/String.h>
 #include <std_msgs/Empty.h>
-#include <sensor_msgs/Joy.h>
+#include <nav_msgs/Odometry.h>
 #include <geometry_msgs/Twist.h>
 #include <termios.h>
 #include <unistd.h>
 #include <iostream>
+#include <thread>
+#include <atomic>
+#include <cstdlib>
+#include "../ROSUtilities/csv_logger.h"
 
-// Define key codes for arrow keys and other controls
-#define KEYCODE_L 0x44
-#define KEYCODE_R 0x43
-#define KEYCODE_U 0x41
-#define KEYCODE_D 0x42
-#define KEYCODE_A 0x61
-#define KEYCODE_S 0x64
-
+struct DesiredPose
+{
+    double x;
+    double y;
+    double z;
+    double yaw;
+};
 class bebop_control
 {
 public:
     // Class members
+    ros::NodeHandle nh_;
     ros::Publisher takeoff_pub_;
     ros::Publisher land_pub_;
     ros::Publisher cmd_vel_pub_;
+    ros::Subscriber position_sub_;
     //Parameters
-    int axis_roll_;
-    int axis_pitch_;
-    int axis_thrust_;
-    int axis_yaw_;
-    int button_takeoff_;
-    int button_land_;
-    int button_emergency_;
-    int button_ident_z_;
-    int button_ident_y_;
-    int button_ident_x_;
-    int button_ident_yaw_;
+    double amp_ident_x_;
+    double amp_ident_y_;
+    double amp_ident_z_;
+    double amp_ident_yaw_;
+    double temp_ident_;
+    double period_duration_;
     bool control_ident_z_ = false;
     bool control_ident_y_ = false;
     bool control_ident_x_ = false;
     bool control_ident_yaw_ = false;
     bool enable_control_keyboard_ = true;
+    bool enable_controller_ = false;
+    std::atomic<bool> interrupt_control_{true};
+    DesiredPose desired_pose_;
     //Messages Declaration
     std_msgs::Empty empty_msg;
     geometry_msgs::Twist twist_msg;
-    bebop_control(ros::NodeHandle& nh)
+    geometry_msgs::Pose position_msg;
+    //Loggers
+    std::unique_ptr<CSVLogger> csv_logger_u_control_;
+    std::unique_ptr<CSVLogger> csv_logger_desired_trajectory_;
+    //Constructor
+    bebop_control(ros::NodeHandle& nh):nh_(nh)
     {
         // Initialize parameters
-        initializeParameters(nh);
+        initializeParameters();
+
 
         // Initialize publishers
-        takeoff_pub_ = nh.advertise<std_msgs::Empty>("bebop/takeoff", 10);
-        land_pub_ = nh.advertise<std_msgs::Empty>("bebop/land", 10);
-        cmd_vel_pub_ = nh.advertise<geometry_msgs::Twist>("bebop/cmd_vel", 10);
+        takeoff_pub_ = nh_.advertise<std_msgs::Empty>("bebop/takeoff", 10);
+        land_pub_ = nh_.advertise<std_msgs::Empty>("bebop/land", 10);
+        cmd_vel_pub_ = nh_.advertise<geometry_msgs::Twist>("bebop/cmd_vel", 10);
         // Initialize subscribers
+        position_sub_ = nh_.subscribe("/filtered_pose", 10, &bebop_control::positionCallback, this);
 
 
         // Initialize services
         // service_ = nh.advertiseService("service_name", &bebop_control::serviceCallback, this);
 
+        //Initialize Functions
+        helpCommands();
+
+        //Initialize Loggers
+        const char* workspace_name = std::getenv("MY_WORKSPACE_NAME");
+        if (workspace_name == nullptr)
+        {
+            ROS_ERROR("Environment variable MY_WORKSPACE_NAME is not set.");
+            return;
+        }
+
+        std::vector<std::string> headertrajectory = std::vector<std::string>{"timestamp", 
+                                                                                "topic", 
+                                                                                "x",  
+                                                                                "y",  
+                                                                                "z", 
+                                                                                "yaw"};
+        csv_logger_desired_trajectory_ = std::make_unique<CSVLogger>(workspace_name, 
+                                                                        "bebop_control", 
+                                                                        "desired_trajectory", 
+                                                                        headertrajectory);
+        std::vector<std::string> header_u_control = std::vector<std::string>{"timestamp", 
+                                                                                "topic", 
+                                                                                "ux",  
+                                                                                "uy",  
+                                                                                "uz", 
+                                                                                "uyaw"};
+        csv_logger_u_control_ = std::make_unique<CSVLogger>(workspace_name, 
+                                                                "bebop_control", 
+                                                                "u_control", 
+                                                                header_u_control);                                                                        
     }
 
     void spin()
     {
+        // Start ROS spinning
         ros::spin();
     }
 
 
     // Function to initialize parameters
-    void initializeParameters(ros::NodeHandle& nh)
+    void initializeParameters()
     {
-        
-        nh.param("axis_roll", axis_roll_, 3);
-        nh.param("axis_pitch", axis_pitch_, 4);
-        nh.param("axis_thrust", axis_thrust_, 1);
-        nh.param("axis_yaw", axis_yaw_, 0);
-        nh.param("button_takeoff", button_takeoff_, 5);
-        nh.param("button_land", button_land_, 7);
-        nh.param("button_emergency", button_emergency_, 4);
-        nh.param("button_ident_z", button_ident_z_, 0);
-        nh.param("button_ident_y", button_ident_y_, 1);
-        nh.param("button_ident_x", button_ident_x_, 2);
-        nh.param("button_ident_yaw", button_ident_yaw_, 3);
-        // Add more parameters as needed
+        desired_pose_.x = 0.0;
+        desired_pose_.y = 0.0;
+        desired_pose_.z = 0.0;
+        desired_pose_.yaw = 0.0;
+        nh_.param("amp_ident_x", amp_ident_x_, 0.1);
+        nh_.param("amp_ident_y", amp_ident_y_, 0.1);
+        nh_.param("amp_ident_z", amp_ident_z_, 0.1);
+        nh_.param("amp_ident_yaw", amp_ident_yaw_, 0.5);
+        nh_.param("temp_ident", temp_ident_, 5.0);
+        nh_.param("period_duration", period_duration_, 1.0);
     }
 
     //Function to control drone from keyboad
@@ -96,11 +135,6 @@ public:
         newt.c_lflag &= ~(ICANON | ECHO);
         // Set the new terminal settings
         tcsetattr(STDIN_FILENO, TCSANOW, &newt);
-
-        std::cout << "Reading from the keyboard and Publishing to Twist!" << std::endl;
-        std::cout << "W: Up, S: Down, A: Yaw Left, D: Yaw Right" << std::endl;
-        std::cout << "Arrow Up: Forward, Arrow Down: Backward, Arrow Left: Left, Arrow Right: Right" << std::endl;
-        std::cout << "T: Takeoff, L: Land, CTRL+C to quit." << std::endl;
 
         ros::Rate rate(200); // Set the loop frequency to 10 Hz
 
@@ -135,7 +169,8 @@ public:
             {
                 // Key pressed, read it
                 key = getchar();
-
+                if (!interrupt_control_){ROS_INFO("Control law interrupted by keyboard input.");}
+                interrupt_control_ = true; 
                 // Check for arrow keys (escape sequences)
                 if (key == 27)
                 {
@@ -162,12 +197,7 @@ public:
                 }
                 else
                 {
-                    // // Reset twist message
-                    // twist_msg.linear.x = 0.0;
-                    // twist_msg.linear.y = 0.0;
-                    // twist_msg.linear.z = 0.0;
-                    // twist_msg.angular.z = 0.0;
-
+                    initializeParameters();
                     switch (key)
                     {
                         case 'w':
@@ -185,6 +215,7 @@ public:
                         case 't':
                             ROS_INFO("Takeoff command received");
                             takeoff_pub_.publish(empty_msg);
+                            helpCommands();
                             break;
                         case 'l':
                             ROS_INFO("Land command received");
@@ -194,26 +225,33 @@ public:
                             control_ident_z_ = !control_ident_z_;
                             enable_control_keyboard_ = false;
                             // TO-DO: Make this parameters configurable
-                            sendAlternatingStepCommand(0.1, 5.0, 1.0, "z", control_ident_z_);
+                            sendAlternatingStepCommand(amp_ident_z_, temp_ident_, period_duration_, "z", control_ident_z_);
                             enable_control_keyboard_ = true;
                             break;
                         case '2':
                             control_ident_y_ = !control_ident_y_;
                             enable_control_keyboard_ = false;
-                            sendAlternatingStepCommand(0.1, 5.0, 1.0, "y", control_ident_y_);
+                            sendAlternatingStepCommand(amp_ident_y_, temp_ident_, period_duration_, "y", control_ident_y_);
                             enable_control_keyboard_ = true;
                             break;
                         case '3':
                             control_ident_x_ = !control_ident_x_;
                             enable_control_keyboard_ = false;
-                            sendAlternatingStepCommand(0.1, 5.0, 1.0, "x", control_ident_x_);
+                            sendAlternatingStepCommand(amp_ident_x_, temp_ident_, period_duration_, "x", control_ident_x_);
                             enable_control_keyboard_ = true;
                             break;
                         case '4':
                             control_ident_yaw_ = !control_ident_yaw_;
                             enable_control_keyboard_ = false;
-                            sendAlternatingStepCommand(0.1, 5.0, 1.0, "yaw", control_ident_yaw_);
+                            sendAlternatingStepCommand(amp_ident_yaw_, temp_ident_, period_duration_, "yaw", control_ident_yaw_);
                             enable_control_keyboard_ = true;
+                            break;
+                        case 'c': 
+                            interrupt_control_ = false; // Reset interruption flag                           
+                            ROS_INFO("Controller is enabled.");
+                            break;
+                        case 'h':
+                            helpCommands();
                             break;
                         case '\x03': // CTRL+C
                             return;
@@ -222,15 +260,34 @@ public:
                     }
                 }
             }
-
-            cmd_vel_pub_.publish(twist_msg);
+            if (interrupt_control_)
+            {
+                publishCmdVel();
+                // cmd_vel_pub_.publish(twist_msg);
+            }            
             rate.sleep(); // Sleep to maintain the loop rate
         }
 
         // Restore the old terminal settings
         tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
     }
-
+    void helpCommands()
+    {
+        ROS_INFO("Help commands:");
+        ROS_INFO("w: Move forward");
+        ROS_INFO("s: Move backward");
+        ROS_INFO("a: Move left");
+        ROS_INFO("d: Move right");
+        ROS_INFO("t: Takeoff");
+        ROS_INFO("l: Land");
+        ROS_INFO("1: Start control identification for z-axis");
+        ROS_INFO("2: Start control identification for y-axis");
+        ROS_INFO("3: Start control identification for x-axis");
+        ROS_INFO("4: Start control identification for yaw-axis");
+        ROS_INFO("c: Enable controller");
+        ROS_INFO("h: Show help commands");
+        ROS_INFO("CTRL+C: Exit program");
+    }
     void sendAlternatingStepCommand(double amp, double temp, double period_duration_, const std::string& axis, bool control_ident)
     {
         if (control_ident)
@@ -255,30 +312,26 @@ public:
                     if (axis == "x")
                     {
                         twist_msg.linear.x = positive ? amp : -amp;
-                        ROS_INFO("Setting linear.x to %f", twist_msg.linear.x);
                     }
                     else if (axis == "y")
                     {
                         twist_msg.linear.y = positive ? amp : -amp;
-                        ROS_INFO("Setting linear.y to %f", twist_msg.linear.y);
                     }
                     else if (axis == "z")
                     {
                         twist_msg.linear.z = positive ? amp : -amp;
-                        ROS_INFO("Setting linear.z to %f", twist_msg.linear.z);
                     }
                     else if (axis == "yaw")
                     {
                         twist_msg.angular.z = positive ? amp : -amp;
-                        ROS_INFO("Setting angular.z to %f", twist_msg.angular.z);
                     }
                     else
                     {
                         ROS_WARN("Invalid axis specified: %s", axis.c_str());
                         return;
                     }
-
-                    cmd_vel_pub_.publish(twist_msg); // Publica o comando
+                    publishCmdVel();
+                    // cmd_vel_pub_.publish(twist_msg); // Publica o comando
 
                     // Sleep for a short duration to avoid spamming the log
                     ros::Duration(0.1).sleep();
@@ -299,20 +352,76 @@ public:
         twist_msg.linear.y = 0.0;
         twist_msg.linear.z = 0.0;
         twist_msg.angular.z = 0.0;
-        cmd_vel_pub_.publish(twist_msg);
+        publishCmdVel();
+        // cmd_vel_pub_.publish(twist_msg);
 
         ROS_INFO("Reset twist message after duration.");
+    }
+    void positionCallback(const nav_msgs::Odometry::ConstPtr& msg)
+    {
+        // Your control law logic here
+        // Check for interruption
+        if (interrupt_control_)
+        {
+            // ROS_INFO("Control law interrupted by keyboard input.");            
+            // Handle interruption (e.g., stop the control law)
+            return;
+        }
+
+
+        // ROS_INFO("Position received: x = %f, y = %f, z = %f", msg->pose.pose.position.x, msg->pose.pose.position.y, msg->pose.pose.position.z);
+        // Implement your control logic based on the received position
+        // Example: Adjust the twist message based on the position
+        // twist_msg.linear.x = msg->position.x;
+        // twist_msg.linear.y = msg->position.y;
+        // twist_msg.linear.z = msg->position.z;
+        // twist_msg.angular.z = msg->orientation.z;
+
+        // cmd_vel_pub_.publish(twist_msg);
+    }
+    void publishCmdVel()
+    {
+        cmd_vel_pub_.publish(twist_msg);
+        writeLogs();
+    }
+    void writeLogs()
+    {
+        double current_time = ros::Time::now().toSec();
+        if (current_time == 0.0)
+        {
+            ROS_WARN("ROS Time is not initialized properly. Skipping log entry.");
+            return;
+        }
+        std::vector<std::variant<std::string, double>> data_u_control = {current_time, 
+                                                                            "cmd_vel", 
+                                                                            twist_msg.linear.x, 
+                                                                            twist_msg.linear.y,
+                                                                            twist_msg.linear.z,
+                                                                            twist_msg.angular.z}; 
+        csv_logger_u_control_->writeCSV(data_u_control);
+        std::vector<std::variant<std::string, double>> data_desired_trajectory = {current_time, 
+                                                                                "desired_trajectory", 
+                                                                                desired_pose_.x, 
+                                                                                desired_pose_.y,
+                                                                                desired_pose_.z,
+                                                                                desired_pose_.yaw};
+        csv_logger_desired_trajectory_->writeCSV(data_desired_trajectory);        
     }
 };
 
 int main(int argc, char** argv)
 {
-    ros::init(argc, argv, "my_ros_node");
+    ros::init(argc, argv, "bebop_control");
     ros::NodeHandle nh;
-    
+
     bebop_control node(nh);
-    node.teleopKeyboard();
+
+    // Start the teleopKeyboard function in a separate thread
+    std::thread teleop_thread(&bebop_control::teleopKeyboard, &node);
+
+    // node.teleopKeyboard();
     node.spin();
 
+    teleop_thread.join(); // Wait for the teleop thread to finish
     return 0;
 }

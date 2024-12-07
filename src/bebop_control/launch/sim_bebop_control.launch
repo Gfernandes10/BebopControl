@@ -50,4 +50,6 @@
     <node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher" />
     <node name="joint_state_publisher" pkg="joint_state_publisher" type="joint_state_publisher" />
   </group>
+<!-- Start Localization Package -->
+  <node name="bebop_localization" pkg="bebop_localization" type="bebop_localization_node"  />
 </launch>

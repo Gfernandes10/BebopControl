@@ -22,8 +22,10 @@ sudo ln -s /usr/bin/python3 /usr/bin/python
 git clone https://github.com/Gfernandes10/BebopControl.git
 cd BebopControl
 echo 'export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:~/BebopControl/devel/lib/parrot_arsdk' >> ~/.bashrc
+echo 'export MY_WORKSPACE_NAME="BebopControl"' >> ~/.bashrc
 wstool update -t src
 rosdep install --from-paths src --ignore-src -r -y
+source ~/.bashrc
 catkin build
 source devel/setup.bash
 ```
