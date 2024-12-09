@@ -5,3 +5,4 @@
 - git: {local-name: bebop_autonomy, uri: 'https://github.com/Gfernandes10/bebop_autonomy.git', version: 'indigo-devel'}
 - git: {local-name: bebop_localization, uri: 'https://github.com/Gfernandes10/bebop_localization.git', version: 'main'}
 - git: {local-name: ROSUtilities, uri: 'https://github.com/Gfernandes10/ROSUtilities.git', version: 'main'}
+- git: {local-name: lar_gazebo, uri: https://github.com/Gfernandes10/lar_gazebo.git, version: 'noetic'}

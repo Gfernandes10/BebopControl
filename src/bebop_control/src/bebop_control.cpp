@@ -12,6 +12,8 @@
 #include <atomic>
 #include <cstdlib>
 #include "../ROSUtilities/csv_logger.h"
+#include <bebop_control/SetReferencePose.h>
+#include <bebop_control/SetCircPath.h>
 
 struct DesiredPose
 {
@@ -20,7 +22,7 @@ struct DesiredPose
     double z;
     double yaw;
 };
-class bebop_control
+class BebopControl
 {
 public:
     // Class members
@@ -29,6 +31,9 @@ public:
     ros::Publisher land_pub_;
     ros::Publisher cmd_vel_pub_;
     ros::Subscriber position_sub_;
+    ros::ServiceServer set_reference_pose_srv_;
+    ros::ServiceServer set_circ_path_srv_; 
+    
     //Parameters
     double amp_ident_x_;
     double amp_ident_y_;
@@ -44,36 +49,43 @@ public:
     bool enable_controller_ = false;
     std::atomic<bool> interrupt_control_{true};
     DesiredPose desired_pose_;
+    double circ_radius_;
+    double circ_angular_velocity_;
+    double circ_height_;
+    ros::Timer trajectory_timer_;
+    bool trajectory_timer_started_ = false;
     //Messages Declaration
     std_msgs::Empty empty_msg;
     geometry_msgs::Twist twist_msg;
     nav_msgs::Odometry position_msg;
     Eigen::VectorXd x_estates = Eigen::VectorXd::Zero(12);
-    Eigen::VectorXd integral_error = Eigen::VectorXd::Zero(4);
+    Eigen::VectorXd integral_error = Eigen::VectorXd::Zero(4);    
     Eigen::VectorXd error = Eigen::VectorXd::Zero(4);
+    Eigen::VectorXd u = Eigen::VectorXd::Zero(4);
     Eigen::Matrix<double, 4, 12> Kx;
     Eigen::Matrix<double, 4, 4> Ki;
     //Loggers
     std::unique_ptr<CSVLogger> csv_logger_u_control_;
     std::unique_ptr<CSVLogger> csv_logger_desired_trajectory_;
+    std::unique_ptr<CSVLogger> csv_logger_error_;
     //Constructor
-    bebop_control(ros::NodeHandle& nh):nh_(nh)
+    BebopControl(ros::NodeHandle& nh):nh_(nh)
     {
         // Initialize parameters
         initializeParameters();
-
+        integral_error << 0, 0, 250, 0; //250
 
         // Initialize publishers
         takeoff_pub_ = nh_.advertise<std_msgs::Empty>("bebop/takeoff", 10);
         land_pub_ = nh_.advertise<std_msgs::Empty>("bebop/land", 10);
         cmd_vel_pub_ = nh_.advertise<geometry_msgs::Twist>("bebop/cmd_vel", 10);
         // Initialize subscribers
-        position_sub_ = nh_.subscribe("/filtered_pose", 10, &bebop_control::positionCallback, this);
+        position_sub_ = nh_.subscribe("/filtered_pose", 10, &BebopControl::positionCallback, this);
 
 
         // Initialize services
-        // service_ = nh.advertiseService("service_name", &bebop_control::serviceCallback, this);
-
+        set_reference_pose_srv_ = nh_.advertiseService("SetReferencePose", &BebopControl::handleSetReferenceSrv, this);
+        set_circ_path_srv_ = nh_.advertiseService("SetCircPath", &BebopControl::handleSetCircPathSrv, this);
         //Initialize Functions
         helpCommands();
 
@@ -104,7 +116,22 @@ public:
         csv_logger_u_control_ = std::make_unique<CSVLogger>(workspace_name, 
                                                                 "bebop_control", 
                                                                 "u_control", 
-                                                                header_u_control);                                                                        
+                                                                header_u_control);     
+                                                                 
+        std::vector<std::string> header_error = std::vector<std::string>{"timestamp", 
+                                                                        "topic", 
+                                                                        "ex",
+                                                                        "int_ex",  
+                                                                        "ey",
+                                                                        "int_ey",  
+                                                                        "ez",
+                                                                        "int_ez", 
+                                                                        "eyaw",
+                                                                        "int_eyaw"};
+        csv_logger_error_ = std::make_unique<CSVLogger>(workspace_name, 
+                                                                "bebop_control", 
+                                                                "error", 
+                                                                header_error);    
     }
 
     void spin()
@@ -119,7 +146,7 @@ public:
     {
         desired_pose_.x = 0.0;
         desired_pose_.y = 0.0;
-        desired_pose_.z = 0.5;
+        desired_pose_.z = 1.0;
         desired_pose_.yaw = 0.0;
         nh_.param("amp_ident_x", amp_ident_x_, 0.1);
         nh_.param("amp_ident_y", amp_ident_y_, 0.1);
@@ -127,16 +154,90 @@ public:
         nh_.param("amp_ident_yaw", amp_ident_yaw_, 0.5);
         nh_.param("temp_ident", temp_ident_, 5.0);
         nh_.param("period_duration", period_duration_, 1.0);
-        Kx << -0.0287, -0.0262, -0.7636, -0.1476, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-                0.0, 0.0, 0.0, 0.0, 0.0199,0.0130,-0.5906,-0.1791, 0.0, 0.0, 0.0, 0.0,
-                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -3.6558,-3.7091, 0.0, 0.0,
-                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -3.0674,-3.3309;
-        Ki << 0.00246, 0.0, 0.0, 0.0,
-                0.0, 0.00278, 0.0, 0.0,
-                0.0, 0.0, 0.01574, 0.0,
-                0.0, 0.0, 0.0, 0.0388;
+        // Kx <<  -0.7636, -0.1476, -0.0287, -0.0262, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        //         0.0, 0.0, 0.0, 0.0,-0.5906,-0.1791, 0.0199,0.0130, 0.0, 0.0, 0.0, 0.0,
+        //         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -0.6558,-0.7091, 0.0, 0.0,
+        //         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -3.0674,-3.3309;
+        Kx <<  -0.7636, -0.1476, -0.0287, -0.0262, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, //-0.7636, -0.1476, -0.0287, -0.0262
+                0.0, 0.0, 0.0, 0.0,-0.5906,-0.1791, 0.0199,0.0130, 0.0, 0.0, 0.0, 0.0,
+                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -0.6558,-0.7091, 0.0, 0.0, //-0.4558,-0.4091 | -0.6558,-0.7091
+                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0674,-1.3309; //-3.0674,-3.3309
+        Ki << 0.001846, 0.0, 0.0, 0.0,//0.00246
+                0.0, 0.001778, 0.0, 0.0, //0.00278
+                0.0, 0.0, 0.002574, 0.0, //0.002574
+                0.0, 0.0, 0.0, 0.00388; //0.0388
+        //Parametros ARDrone
+        // Kx <<  -1.5088, -0.8481, -2.4496, -0.5186, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, //-0.7636, -0.1476, -0.0287, -0.0262
+        //         0.0, 0.0, 0.0, 0.0,-1.4914, -0.8853, 2.9098, 0.9564, 0.0, 0.0, 0.0, 0.0,
+        //         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -0.6558,-0.7091, 0.0, 0.0, //-0.4558,-0.4091 | -0.6558,-0.7091
+        //         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -0.9184, -0.1469; //-3.0674,-3.3309
+        // Ki << 0.2587, 0.0, 0.0, 0.0,//0.00246
+        //         0.0, 0.2608, 0.0, 0.0, //0.00278
+        //         0.0, 0.0, 0.002574, 0.0, //0.002574
+        //         0.0, 0.0, 0.0, 0.4797; //0.0388
     }
+    bool handleSetCircPathSrv(bebop_control::SetCircPath::Request& req, bebop_control::SetCircPath::Response& res)
+    {
+        if (req.radius < 0.0)
+        {
+            ROS_WARN("Invalid radius value specified: %f. Radius value must be greater than or equal to 0.0", req.radius);
+            res.status = false;
+            return false;
+        }
 
+        circ_radius_ = req.radius;
+        circ_angular_velocity_ = req.angular_velocity;
+        circ_height_ = req.height;
+
+        // Stop the existing trajectory timer if it is running
+        if (trajectory_timer_started_)
+        {
+            trajectory_timer_.stop();
+            trajectory_timer_started_ = false;
+        }
+
+        // Start the trajectory timer
+        trajectory_timer_ = nh_.createTimer(ros::Duration(0.1), &BebopControl::updateCircularTrajectory, this);
+        trajectory_timer_started_ = true;
+        res.status = true;
+        ROS_INFO("Circular path set with radius = %f, angular velocity = %f, height = %f", circ_radius_, circ_angular_velocity_, circ_height_);
+        return true;
+    }
+    void updateCircularTrajectory(const ros::TimerEvent&)
+    {
+        static double time = 0.0;
+        time += 0.1;
+
+        desired_pose_.x = circ_radius_ * cos(circ_angular_velocity_ * time);
+        desired_pose_.y = circ_radius_ * sin(circ_angular_velocity_ * time);
+        desired_pose_.z = circ_height_;
+        // desired_pose_.yaw = atan2(desired_pose_.y, desired_pose_.x);
+        desired_pose_.yaw = 0;
+        // // Log the desired trajectory
+        // std::vector<std::variant<std::string, double>> data_trajectory = {ros::Time::now().toSec(), 
+        //                                                                   "desired_trajectory", 
+        //                                                                   desired_pose_.x, 
+        //                                                                   desired_pose_.y, 
+        //                                                                   desired_pose_.z, 
+        //                                                                   desired_pose_.yaw};
+        // csv_logger_desired_trajectory_->writeCSV(data_trajectory);
+    }
+    bool handleSetReferenceSrv(bebop_control::SetReferencePose::Request& req, bebop_control::SetReferencePose::Response& res)
+    {
+        if (req.z < 0.0)
+        {
+            ROS_WARN("Invalid z value specified: %f. Z value must be greater than or equal to 0.0", req.z);
+            res.status = false;
+            return false;
+        }
+        desired_pose_.x = req.x;
+        desired_pose_.y = req.y;
+        desired_pose_.z = req.z;
+        desired_pose_.yaw = req.heading;
+        res.status = true;
+        ROS_INFO("Reference pose set to x = %f, y = %f, z = %f, yaw = %f", desired_pose_.x, desired_pose_.y, desired_pose_.z, desired_pose_.yaw);
+        return true;
+    }
     //Function to control drone from keyboad
     void teleopKeyboard()
     {
@@ -186,6 +287,11 @@ public:
                 key = getchar();
                 if (!interrupt_control_){ROS_INFO("Control law interrupted by keyboard input.");}
                 interrupt_control_ = true; 
+                if (trajectory_timer_started_)
+                {
+                    trajectory_timer_started_ = false;  
+                    trajectory_timer_.stop();
+                }
                 // Check for arrow keys (escape sequences)
                 if (key == 27)
                 {
@@ -382,6 +488,7 @@ public:
             // Handle interruption (e.g., stop the control law)
             return;
         }
+        
         position_msg = *msg;
         tf::Quaternion quaternion;      
         tf::quaternionMsgToTF(position_msg.pose.pose.orientation, quaternion);
@@ -403,22 +510,34 @@ public:
         // Calculate error
         error << desired_pose_.x - x, desired_pose_.y - y, desired_pose_.z - z, desired_pose_.yaw - yaw;
         // Update integral error
+
         integral_error += error;
 
-        // Log the values
-        // ROS_INFO_STREAM("x_estates: " << x_estates.transpose());
-        // ROS_INFO_STREAM("error: " << error.transpose());
-        // ROS_INFO_STREAM("integral_error: " << integral_error.transpose());
-
-
+        // Log errors
+        std::vector<std::variant<std::string, double>> data_error = {ros::Time::now().toSec(), 
+                                                                        "errors", 
+                                                                        error[0], 
+                                                                        integral_error[0],
+                                                                        error[1],
+                                                                        integral_error[1],
+                                                                        error[2],
+                                                                        integral_error[2],
+                                                                        error[3],
+                                                                        integral_error[3]};
+        csv_logger_error_->writeCSV(data_error);
 
         // Calculate control input
 
-        Eigen::VectorXd u = Kx * x_estates + Ki * integral_error;
+        u = Kx * x_estates + Ki * integral_error;
+        
         twist_msg.linear.x = u(0);
         twist_msg.linear.y = u(1);
         twist_msg.linear.z = u(2);
         twist_msg.angular.z = u(3);
+        // twist_msg.linear.x = 0;
+        // twist_msg.linear.y = 0;
+        // twist_msg.linear.z = u(2);       
+        // twist_msg.angular.z = 0;
         // Publish the control input
         publishCmdVel();
         // ROS_INFO("Position received: x = %f, y = %f, z = %f", msg->pose.pose.position.x, msg->pose.pose.position.y, msg->pose.pose.position.z);
@@ -458,10 +577,10 @@ int main(int argc, char** argv)
     ros::init(argc, argv, "bebop_control");
     ros::NodeHandle nh;
 
-    bebop_control node(nh);
+    BebopControl node(nh);
 
     // Start the teleopKeyboard function in a separate thread
-    std::thread teleop_thread(&bebop_control::teleopKeyboard, &node);
+    std::thread teleop_thread(&BebopControl::teleopKeyboard, &node);
 
     // node.teleopKeyboard();
     node.spin();
