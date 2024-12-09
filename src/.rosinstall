@@ -6,3 +6,4 @@
 - git: {local-name: bebop_localization, uri: 'https://github.com/Gfernandes10/bebop_localization.git', version: 'main'}
 - git: {local-name: ROSUtilities, uri: 'https://github.com/Gfernandes10/ROSUtilities.git', version: 'main'}
 - git: {local-name: lar_gazebo, uri: https://github.com/Gfernandes10/lar_gazebo.git, version: 'noetic'}
+- git: {local-name: natnet_ros_cpp, uri: https://github.com/L2S-lab/natnet_ros_cpp,  version: 'main'}

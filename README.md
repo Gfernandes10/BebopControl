@@ -15,6 +15,7 @@ sudo apt install ros-noetic-mavros ros-noetic-octomap-ros ros-noetic-joy ros-noe
 sudo apt install ros-noetic-teleop-twist-joy noetic-teleop-twist-keyboard
 sudo apt-get install python3-wstool
 sudo apt-get install libncurses5-dev libncursesw5-dev
+sudo apt install -y ros-noetic-tf2* wget
 sudo ln -s /usr/bin/python3 /usr/bin/python
 ```
 
