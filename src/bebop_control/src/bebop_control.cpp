@@ -224,9 +224,9 @@ public:
     }
     bool handleSetReferenceSrv(bebop_control::SetReferencePose::Request& req, bebop_control::SetReferencePose::Response& res)
     {
-        if (req.z < 0.0)
+        if (req.z <= 0.0)
         {
-            ROS_WARN("Invalid z value specified: %f. Z value must be greater than or equal to 0.0", req.z);
+            ROS_WARN("Invalid z value specified: %f. Z value must be greater than 0.0", req.z);
             res.status = false;
             return false;
         }
