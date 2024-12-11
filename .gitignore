@@ -12,3 +12,5 @@ src/bebop_localization
 logs/
 .catkin_tools/
 src/ROSUtilities
+src/lar_gazebo
+src/natnet_ros_cpp
