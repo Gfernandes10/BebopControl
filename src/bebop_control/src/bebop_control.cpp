@@ -213,14 +213,7 @@ public:
         desired_pose_.z = circ_height_;
         // desired_pose_.yaw = atan2(desired_pose_.y, desired_pose_.x);
         desired_pose_.yaw = 0;
-        // // Log the desired trajectory
-        // std::vector<std::variant<std::string, double>> data_trajectory = {ros::Time::now().toSec(), 
-        //                                                                   "desired_trajectory", 
-        //                                                                   desired_pose_.x, 
-        //                                                                   desired_pose_.y, 
-        //                                                                   desired_pose_.z, 
-        //                                                                   desired_pose_.yaw};
-        // csv_logger_desired_trajectory_->writeCSV(data_trajectory);
+
     }
     bool handleSetReferenceSrv(bebop_control::SetReferencePose::Request& req, bebop_control::SetReferencePose::Response& res)
     {
@@ -285,6 +278,7 @@ public:
             {
                 // Key pressed, read it
                 key = getchar();
+                ROS_INFO("Key pressed: %c", key);
                 if (!interrupt_control_){ROS_INFO("Control law interrupted by keyboard input.");}
                 interrupt_control_ = true; 
                 if (trajectory_timer_started_)
@@ -346,25 +340,30 @@ public:
                             control_ident_z_ = !control_ident_z_;
                             enable_control_keyboard_ = false;
                             // TO-DO: Make this parameters configurable
-                            sendAlternatingStepCommand(amp_ident_z_, temp_ident_, period_duration_, "z", control_ident_z_);
+                            ROS_INFO("Starting control identification for z-axis");
+                            sendSenoidComand(0.02,40.0,"z");
+                            // sendAlternatingStepCommand(amp_ident_z_, temp_ident_, period_duration_, "z", control_ident_z_);
                             enable_control_keyboard_ = true;
                             break;
                         case '2':
                             control_ident_y_ = !control_ident_y_;
                             enable_control_keyboard_ = false;
-                            sendAlternatingStepCommand(amp_ident_y_, temp_ident_, period_duration_, "y", control_ident_y_);
+                            sendSenoidComand(0.02,40.0,"y");
+                            // sendAlternatingStepCommand(amp_ident_y_, temp_ident_, period_duration_, "y", control_ident_y_);
                             enable_control_keyboard_ = true;
                             break;
                         case '3':
                             control_ident_x_ = !control_ident_x_;
                             enable_control_keyboard_ = false;
-                            sendAlternatingStepCommand(amp_ident_x_, temp_ident_, period_duration_, "x", control_ident_x_);
+                            // sendAlternatingStepCommand(amp_ident_x_, temp_ident_, period_duration_, "x", control_ident_x_);
+                            sendSenoidComand(0.02,40.0,"x");
                             enable_control_keyboard_ = true;
                             break;
                         case '4':
                             control_ident_yaw_ = !control_ident_yaw_;
                             enable_control_keyboard_ = false;
-                            sendAlternatingStepCommand(amp_ident_yaw_, temp_ident_, period_duration_, "yaw", control_ident_yaw_);
+                            sendSenoidComand(0.05,40.0,"yaw");
+                            // sendAlternatingStepCommand(amp_ident_yaw_, temp_ident_, period_duration_, "yaw", control_ident_yaw_);
                             enable_control_keyboard_ = true;
                             break;
                         case 'c': 
@@ -409,6 +408,54 @@ public:
         ROS_INFO("h: Show help commands");
         ROS_INFO("CTRL+C: Exit program");
     }
+void sendSenoidComand(double amp1, double temp, const std::string& axis)
+{
+    ROS_INFO("Starting senoid command with amplitue: %f duration: %f seconds, axis: %s", amp1, temp, axis.c_str());
+    ros::Time start_time = ros::Time::now();
+    ros::Duration duration(temp);
+    while (ros::Time::now() - start_time < duration)
+    {
+        double t = (ros::Time::now() - start_time).toSec();
+        // double signal = amp1 * sin(2 * M_PI * t / T) + amp2 * sin(2 * M_PI * t / T);
+        double signal = amp1 * (3*sin(0.2*M_PI*t) + sin(0.6*M_PI*t) + 0.5*sin(M_PI*t));
+
+        if (axis == "x")
+        {
+            twist_msg.linear.x = signal;
+        }
+        else if (axis == "y")
+        {
+            twist_msg.linear.y = signal;
+        }
+        else if (axis == "z")
+        {
+            twist_msg.linear.z = signal;
+        }
+        else if (axis == "yaw")
+        {
+            twist_msg.angular.z = signal;
+        }
+        else
+        {
+            ROS_WARN("Invalid axis specified: %s", axis.c_str());
+            return;
+        }
+
+        publishCmdVel();
+        ros::Duration(0.05).sleep();
+    }
+
+    ROS_INFO("Finished senoid command for axis: %s", axis.c_str());
+
+    // Reseta a mensagem twist após a duração
+    twist_msg.linear.x = 0.0;
+    twist_msg.linear.y = 0.0;
+    twist_msg.linear.z = 0.0;
+    twist_msg.angular.z = 0.0;
+    publishCmdVel();
+
+    ROS_INFO("Reset twist message after duration.");
+}
     void sendAlternatingStepCommand(double amp, double temp, double period_duration_, const std::string& axis, bool control_ident)
     {
         if (control_ident)
@@ -514,7 +561,7 @@ public:
         integral_error += error;
 
         // Log errors
-        std::vector<std::variant<std::string, double>> data_error = {ros::Time::now().toSec(), 
+        std::vector<std::variant<std::string, double>> data_error = {std::to_string(ros::Time::now().toSec()), 
                                                                         "errors", 
                                                                         error[0], 
                                                                         integral_error[0],
@@ -549,12 +596,7 @@ public:
     }
     void writeLogs()
     {
-        double current_time = ros::Time::now().toSec();
-        if (current_time == 0.0)
-        {
-            ROS_WARN("ROS Time is not initialized properly. Skipping log entry.");
-            return;
-        }
+        std::string current_time = std::to_string(ros::Time::now().toSec());
         std::vector<std::variant<std::string, double>> data_u_control = {current_time, 
                                                                             "cmd_vel", 
                                                                             twist_msg.linear.x, 
