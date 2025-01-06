@@ -14,6 +14,8 @@
 #include "../ROSUtilities/csv_logger.h"
 #include <bebop_control/SetReferencePose.h>
 #include <bebop_control/SetCircPath.h>
+#include <bebop_control/SetHTCircPath.h>
+#include <bebop_control/SetDiagCircPath.h>
 
 struct DesiredPose
 {
@@ -32,7 +34,9 @@ public:
     ros::Publisher cmd_vel_pub_;
     ros::Subscriber position_sub_;
     ros::ServiceServer set_reference_pose_srv_;
-    ros::ServiceServer set_circ_path_srv_; 
+    ros::ServiceServer set_circ_path_srv_;
+    ros::ServiceServer set_htcirc_path_srv_; 
+    ros::ServiceServer set_diagcirc_path_srv_;  
     
     //Parameters
     double amp_ident_x_;
@@ -54,16 +58,25 @@ public:
     double circ_height_;
     ros::Timer trajectory_timer_;
     bool trajectory_timer_started_ = false;
+    ros::Time start_time_;
+    bool goal_reached_ = true;
+    bool circle_VT_path_ = false;
+    bool circle_HT_path_ = false;
+    bool circle_diag_path_ = false;
+
     //Messages Declaration
     std_msgs::Empty empty_msg;
     geometry_msgs::Twist twist_msg;
     nav_msgs::Odometry position_msg;
     Eigen::VectorXd x_estates = Eigen::VectorXd::Zero(12);
+    Eigen::VectorXd x_estates_simp = Eigen::VectorXd::Zero(8);
     Eigen::VectorXd integral_error = Eigen::VectorXd::Zero(4);    
     Eigen::VectorXd error = Eigen::VectorXd::Zero(4);
     Eigen::VectorXd u = Eigen::VectorXd::Zero(4);
     Eigen::Matrix<double, 4, 12> Kx;
+    Eigen::Matrix<double, 4, 8> Kx_simp;
     Eigen::Matrix<double, 4, 4> Ki;
+    Eigen::Matrix<double, 4, 4> Ki_simp;
     //Loggers
     std::unique_ptr<CSVLogger> csv_logger_u_control_;
     std::unique_ptr<CSVLogger> csv_logger_desired_trajectory_;
@@ -73,19 +86,21 @@ public:
     {
         // Initialize parameters
         initializeParameters();
-        integral_error << 0, 0, 250, 0; //250
+        integral_error << 0, 0, 155, 0; //250
 
         // Initialize publishers
         takeoff_pub_ = nh_.advertise<std_msgs::Empty>("bebop/takeoff", 10);
         land_pub_ = nh_.advertise<std_msgs::Empty>("bebop/land", 10);
         cmd_vel_pub_ = nh_.advertise<geometry_msgs::Twist>("bebop/cmd_vel", 10);
         // Initialize subscribers
-        position_sub_ = nh_.subscribe("/filtered_pose", 10, &BebopControl::positionCallback, this);
+        position_sub_ = nh_.subscribe("/filtered_pose_est", 10, &BebopControl::positionCallback, this);
 
 
         // Initialize services
         set_reference_pose_srv_ = nh_.advertiseService("SetReferencePose", &BebopControl::handleSetReferenceSrv, this);
         set_circ_path_srv_ = nh_.advertiseService("SetCircPath", &BebopControl::handleSetCircPathSrv, this);
+        set_htcirc_path_srv_ = nh_.advertiseService("SetHtCircPath", &BebopControl::handleSetHTCircPathSrv, this);
+        set_diagcirc_path_srv_ = nh_.advertiseService("SetDiagCircPath", &BebopControl::handleSetDiagCircPathSrv, this);
         //Initialize Functions
         helpCommands();
 
@@ -144,6 +159,7 @@ public:
     // Function to initialize parameters
     void initializeParameters()
     {
+        start_time_ = ros::Time::now();
         desired_pose_.x = 0.0;
         desired_pose_.y = 0.0;
         desired_pose_.z = 1.0;
@@ -175,8 +191,84 @@ public:
         //         0.0, 0.2608, 0.0, 0.0, //0.00278
         //         0.0, 0.0, 0.1574, 0.0, //0.002574
         //         0.0, 0.0, 0.0, 1.0788 ; //0.0388
+        //LQR 
+        Kx_simp <<    0.4227, 0.2558, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                         0.0, 0.0, 0.4227, 0.2557, 0.0, 0.0, 0.0, 0.0,
+                         0.0, 0.0, 0.0, 0.0, 0.4534, 0.3544, 0.0, 0.0,  //0.7353, 0.2647
+                         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.7689, 0.3269; 
+        Ki_simp <<    -0.0301, 0.0, 0.0, 0.0,
+                         0.0, -0.0301, 0.0, 0.0, 
+                         0.0, 0.0, -0.0302, 0.0, //1.3239
+                         0.0, 0.0, 0.0, -0.0318; 
+        //LQR LMI
+        Kx_simp <<   -0.2069, -0.4843, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                        0.0, 0.0, -0.2069, -0.4843, 0.0, 0.0, 0.0, 0.0,
+                        0.0, 0.0, 0.0, 0.0, -0.2081,  -0.5351, 0.0, 0.0, //-0.5572,  -3.2700
+                        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -0.1993, -0.2103; 
+        Ki_simp <<   0.0013, 0.0, 0.0, 0.0,
+                        0.0, 0.0013, 0.0, 0.0, 
+                        0.0, 0.0, 0.0013, 0.0, //0.0330
+                        0.0, 0.0, 0.0, 0.0012; 
     }
     bool handleSetCircPathSrv(bebop_control::SetCircPath::Request& req, bebop_control::SetCircPath::Response& res)
+    {
+        if (req.radius < 0.0)
+        {
+            ROS_WARN("Invalid radius value specified: %f. Radius value must be greater than or equal to 0.0", req.radius);
+            res.status = false;
+            return false;
+        }
+        circ_radius_ = req.radius;
+        circ_angular_velocity_ = req.angular_velocity;
+        circ_height_ = req.height;
+        if (!circle_VT_path_)
+        {
+            ROS_INFO("Starting new trajectory timer");
+            circle_VT_path_ = true;
+            circle_HT_path_ = false;
+            circle_diag_path_ = false;
+            // Start the trajectory timer
+            trajectory_timer_ = nh_.createTimer(ros::Duration(0.1), &BebopControl::updateCircularTrajectory, this);
+            ROS_INFO("Circular path set with radius = %f, angular velocity = %f, height = %f", circ_radius_, circ_angular_velocity_, circ_height_);
+        } 
+        else
+        {
+            ROS_INFO("Stopping existing trajectory timer");
+            circle_VT_path_ = false;
+            trajectory_timer_.stop();
+        }    
+        res.status = true;
+        return true;
+    }
+    bool handleSetHTCircPathSrv(bebop_control::SetHTCircPath::Request& req, bebop_control::SetHTCircPath::Response& res)
+    {
+        if (req.radius < 0.0)
+        {
+            ROS_WARN("Invalid radius value specified: %f. Radius value must be greater than or equal to 0.0", req.radius);
+            res.status = false;
+            return false;
+        }
+        circ_radius_ = req.radius;
+        circ_angular_velocity_ = req.angular_velocity;
+        circ_height_ = req.height;
+        if (!circle_HT_path_)
+        {
+            circle_HT_path_ = true;
+            circle_VT_path_ = false;
+            circle_diag_path_ = false;
+            trajectory_timer_ = nh_.createTimer(ros::Duration(0.2), &BebopControl::updateCircularTrajectory, this);
+            ROS_INFO("Circular path set with radius = %f, angular velocity = %f, height = %f", circ_radius_, circ_angular_velocity_, circ_height_);
+        }
+        else
+        {
+            ROS_INFO("Stopping existing trajectory timer");
+            circle_HT_path_ = false;
+            trajectory_timer_.stop();
+        }  
+        res.status = true;
+        return true;
+    }
+    bool handleSetDiagCircPathSrv(bebop_control::SetHTCircPath::Request& req, bebop_control::SetHTCircPath::Response& res)
     {
         if (req.radius < 0.0)
         {
@@ -188,31 +280,67 @@ public:
         circ_radius_ = req.radius;
         circ_angular_velocity_ = req.angular_velocity;
         circ_height_ = req.height;
-
-        // Stop the existing trajectory timer if it is running
-        if (trajectory_timer_started_)
+        if (!circle_diag_path_)
         {
-            trajectory_timer_.stop();
-            trajectory_timer_started_ = false;
+            circle_HT_path_ = false;
+            circle_VT_path_ = false;
+            circle_diag_path_ = true;
+            trajectory_timer_ = nh_.createTimer(ros::Duration(0.02), &BebopControl::updateCircularTrajectory, this);
+            ROS_INFO("Circular path set with radius = %f, angular velocity = %f, height = %f", circ_radius_, circ_angular_velocity_, circ_height_);
         }
-
-        // Start the trajectory timer
-        trajectory_timer_ = nh_.createTimer(ros::Duration(0.1), &BebopControl::updateCircularTrajectory, this);
-        trajectory_timer_started_ = true;
+        else
+        {
+            ROS_INFO("Stopping existing trajectory timer");
+            circle_diag_path_ = false;
+            trajectory_timer_.stop();
+        }  
         res.status = true;
-        ROS_INFO("Circular path set with radius = %f, angular velocity = %f, height = %f", circ_radius_, circ_angular_velocity_, circ_height_);
         return true;
     }
-    void updateCircularTrajectory(const ros::TimerEvent&)
+    void updateCircularTrajectory(const ros::TimerEvent&) 
     {
-        static double time = 0.0;
-        time += 0.1;
+        if (circle_VT_path_)
+        {
+            static double time = 0.0;
+            time += 0.1;
 
-        desired_pose_.x = circ_radius_ * cos(circ_angular_velocity_ * time);
-        desired_pose_.y = circ_radius_ * sin(circ_angular_velocity_ * time);
-        desired_pose_.z = circ_height_;
-        // desired_pose_.yaw = atan2(desired_pose_.y, desired_pose_.x);
-        desired_pose_.yaw = 0;
+            desired_pose_.x = 0.0;
+            desired_pose_.y = circ_radius_ * cos(circ_angular_velocity_ * time);
+            desired_pose_.z = circ_height_ + circ_radius_ * sin(circ_angular_velocity_ * time);
+            desired_pose_.yaw = 0.0;
+        }
+        else if (circle_HT_path_)
+        {
+            static double time = 0.0;
+            time += 0.1;
+
+            desired_pose_.x = circ_radius_ * cos(circ_angular_velocity_ * time);
+            desired_pose_.y = circ_radius_ * sin(circ_angular_velocity_ * time);
+            desired_pose_.z = circ_height_;
+            desired_pose_.yaw = 0.0;
+        }
+        else if (circle_diag_path_)
+        {
+            static double time = 0.0;
+            time += 0.02;
+
+            desired_pose_.x = circ_radius_ * cos(circ_angular_velocity_ * time);
+            desired_pose_.y = circ_radius_ * sin(circ_angular_velocity_ * time);
+            desired_pose_.z = circ_height_ + (circ_radius_/2) * sin(circ_angular_velocity_ * time);
+            desired_pose_.yaw = 0.0;
+        }
+        else
+        {
+            ROS_WARN("No circular path is set. Cannot update trajectory.");
+        }
+        // static double time = 0.0;
+        // time += 0.2;
+
+        // desired_pose_.x = 0;
+        // desired_pose_.y = circ_radius_ * cos(circ_angular_velocity_ * time);;
+        // desired_pose_.z = circ_height_ + circ_radius_ * sin(circ_angular_velocity_ * time);
+        // // desired_pose_.yaw = atan2(desired_pose_.y, desired_pose_.x);
+        // desired_pose_.yaw = 0;
 
     }
     bool handleSetReferenceSrv(bebop_control::SetReferencePose::Request& req, bebop_control::SetReferencePose::Response& res)
@@ -228,7 +356,10 @@ public:
         desired_pose_.z = req.z;
         desired_pose_.yaw = req.heading;
         res.status = true;
+        start_time_ = ros::Time::now();
+        goal_reached_ = false;
         ROS_INFO("Reference pose set to x = %f, y = %f, z = %f, yaw = %f", desired_pose_.x, desired_pose_.y, desired_pose_.z, desired_pose_.yaw);
+        
         return true;
     }
     //Function to control drone from keyboad
@@ -246,6 +377,7 @@ public:
         tcsetattr(STDIN_FILENO, TCSANOW, &newt);
 
         ros::Rate rate(200); // Set the loop frequency to 10 Hz
+        static ros::Time last_key_time = ros::Time::now();
 
         while (ros::ok())
         {
@@ -264,21 +396,26 @@ public:
                 perror("select"); // Error occurred in select()
             }
             else if (rv == 0)
-            {
+            {                
                 if (enable_control_keyboard_)
                 {
-                    // No key pressed, reset twist message
-                    twist_msg.linear.x = 0.0;
-                    twist_msg.linear.y = 0.0;
-                    twist_msg.linear.z = 0.0;
-                    twist_msg.angular.z = 0.0;
+                    if ((ros::Time::now() - last_key_time).toSec() > 0.5)
+                    {
+                        // No key pressed for 0.2 seconds, reset twist message
+                        twist_msg.linear.x = 0.0;
+                        twist_msg.linear.y = 0.0;
+                        twist_msg.linear.z = 0.0;
+                        twist_msg.angular.z = 0.0;
+                    }
                 }
             }
             else
             {
                 // Key pressed, read it
                 key = getchar();
-                ROS_INFO("Key pressed: %c", key);
+                // ROS_INFO("Key pressed: %c", key);
+                last_key_time = ros::Time::now(); // Update last_key_time when a key is pressed
+        
                 if (!interrupt_control_){ROS_INFO("Control law interrupted by keyboard input.");}
                 interrupt_control_ = true; 
                 if (trajectory_timer_started_)
@@ -341,14 +478,14 @@ public:
                             enable_control_keyboard_ = false;
                             // TO-DO: Make this parameters configurable
                             ROS_INFO("Starting control identification for z-axis");
-                            sendSenoidComand(0.02,40.0,"z");
+                            sendSenoidComand(0.02,60.0,"z");
                             // sendAlternatingStepCommand(amp_ident_z_, temp_ident_, period_duration_, "z", control_ident_z_);
                             enable_control_keyboard_ = true;
                             break;
                         case '2':
                             control_ident_y_ = !control_ident_y_;
                             enable_control_keyboard_ = false;
-                            sendSenoidComand(0.02,40.0,"y");
+                            sendSenoidComand(0.02,60.0,"y");
                             // sendAlternatingStepCommand(amp_ident_y_, temp_ident_, period_duration_, "y", control_ident_y_);
                             enable_control_keyboard_ = true;
                             break;
@@ -356,13 +493,13 @@ public:
                             control_ident_x_ = !control_ident_x_;
                             enable_control_keyboard_ = false;
                             // sendAlternatingStepCommand(amp_ident_x_, temp_ident_, period_duration_, "x", control_ident_x_);
-                            sendSenoidComand(0.02,40.0,"x");
+                            sendSenoidComand(0.02,60.0,"x");
                             enable_control_keyboard_ = true;
                             break;
                         case '4':
                             control_ident_yaw_ = !control_ident_yaw_;
                             enable_control_keyboard_ = false;
-                            sendSenoidComand(0.05,40.0,"yaw");
+                            sendSenoidComand(0.05,60.0,"yaw");
                             // sendAlternatingStepCommand(amp_ident_yaw_, temp_ident_, period_duration_, "yaw", control_ident_yaw_);
                             enable_control_keyboard_ = true;
                             break;
@@ -370,6 +507,11 @@ public:
                             interrupt_control_ = false; // Reset interruption flag                           
                             ROS_INFO("Controller is enabled.");
                             break;
+                        case 'r':
+                            twist_msg.linear.x = 0.0;
+                            twist_msg.linear.y = 0.0;
+                            twist_msg.linear.z = 0.0;
+                            twist_msg.angular.z = 0.0;
                         case 'h':
                             helpCommands();
                             break;
@@ -382,7 +524,7 @@ public:
             }
             if (interrupt_control_)
             {
-                publishCmdVel();
+                publishCmdVel(twist_msg);
                 // cmd_vel_pub_.publish(twist_msg);
             }            
             rate.sleep(); // Sleep to maintain the loop rate
@@ -408,54 +550,55 @@ public:
         ROS_INFO("h: Show help commands");
         ROS_INFO("CTRL+C: Exit program");
     }
-void sendSenoidComand(double amp1, double temp, const std::string& axis)
-{
-    ROS_INFO("Starting senoid command with amplitue: %f duration: %f seconds, axis: %s", amp1, temp, axis.c_str());
-    ros::Time start_time = ros::Time::now();
-    ros::Duration duration(temp);
-    while (ros::Time::now() - start_time < duration)
+    void sendSenoidComand(double amp1, double temp, const std::string& axis)
     {
-        double t = (ros::Time::now() - start_time).toSec();
-        // double signal = amp1 * sin(2 * M_PI * t / T) + amp2 * sin(2 * M_PI * t / T);
-        double signal = amp1 * (3*sin(0.2*M_PI*t) + sin(0.6*M_PI*t) + 0.5*sin(M_PI*t));
+        ROS_INFO("Starting senoid command with amplitue: %f duration: %f seconds, axis: %s", amp1, temp, axis.c_str());
+        ros::Time start_time = ros::Time::now();
+        ros::Duration duration(temp);
+        while (ros::Time::now() - start_time < duration)
+        {
+            double t = (ros::Time::now() - start_time).toSec();
+            // double signal = amp1 * sin(2 * M_PI * t / T) + amp2 * sin(2 * M_PI * t / T);
+            // double signal = amp1 * (3*sin(0.2*M_PI*t) + sin(0.6*M_PI*t) + 0.5*sin(M_PI*t));
+            double signal = (0.1/4.5) * (3*sin(0.2*M_PI*t) + sin(0.6*M_PI*t) + 0.5*sin(M_PI*t));
 
-        if (axis == "x")
-        {
-            twist_msg.linear.x = signal;
-        }
-        else if (axis == "y")
-        {
-            twist_msg.linear.y = signal;
-        }
-        else if (axis == "z")
-        {
-            twist_msg.linear.z = signal;
-        }
-        else if (axis == "yaw")
-        {
-            twist_msg.angular.z = signal;
-        }
-        else
-        {
-            ROS_WARN("Invalid axis specified: %s", axis.c_str());
-            return;
+            if (axis == "x")
+            {
+                twist_msg.linear.x = signal;
+            }
+            else if (axis == "y")
+            {
+                twist_msg.linear.y = signal;
+            }
+            else if (axis == "z")
+            {
+                twist_msg.linear.z = signal;
+            }
+            else if (axis == "yaw")
+            {
+                twist_msg.angular.z = signal;
+            }
+            else
+            {
+                ROS_WARN("Invalid axis specified: %s", axis.c_str());
+                return;
+            }
+
+            publishCmdVel(twist_msg);
+            ros::Duration(0.2).sleep();
         }
 
-        publishCmdVel();
-        ros::Duration(0.05).sleep();
+        ROS_INFO("Finished senoid command for axis: %s", axis.c_str());
+
+        // Reseta a mensagem twist após a duração
+        twist_msg.linear.x = 0.0;
+        twist_msg.linear.y = 0.0;
+        twist_msg.linear.z = 0.0;
+        twist_msg.angular.z = 0.0;
+        publishCmdVel(twist_msg);
+
+        ROS_INFO("Reset twist message after duration.");
     }
-
-    ROS_INFO("Finished senoid command for axis: %s", axis.c_str());
-
-    // Reseta a mensagem twist após a duração
-    twist_msg.linear.x = 0.0;
-    twist_msg.linear.y = 0.0;
-    twist_msg.linear.z = 0.0;
-    twist_msg.angular.z = 0.0;
-    publishCmdVel();
-
-    ROS_INFO("Reset twist message after duration.");
-}
     void sendAlternatingStepCommand(double amp, double temp, double period_duration_, const std::string& axis, bool control_ident)
     {
         if (control_ident)
@@ -498,7 +641,7 @@ void sendSenoidComand(double amp1, double temp, const std::string& axis)
                         ROS_WARN("Invalid axis specified: %s", axis.c_str());
                         return;
                     }
-                    publishCmdVel();
+                    publishCmdVel(twist_msg);
                     // cmd_vel_pub_.publish(twist_msg); // Publica o comando
 
                     // Sleep for a short duration to avoid spamming the log
@@ -520,7 +663,7 @@ void sendSenoidComand(double amp1, double temp, const std::string& axis)
         twist_msg.linear.y = 0.0;
         twist_msg.linear.z = 0.0;
         twist_msg.angular.z = 0.0;
-        publishCmdVel();
+        publishCmdVel(twist_msg);
         // cmd_vel_pub_.publish(twist_msg);
 
         ROS_INFO("Reset twist message after duration.");
@@ -535,6 +678,7 @@ void sendSenoidComand(double amp1, double temp, const std::string& axis)
             // Handle interruption (e.g., stop the control law)
             return;
         }
+
         
         position_msg = *msg;
         tf::Quaternion quaternion;      
@@ -554,9 +698,53 @@ void sendSenoidComand(double amp1, double temp, const std::string& axis)
         double yaw_ = yaw;
         double dyaw = position_msg.twist.twist.angular.z;
         x_estates << x, dx, pitch_, dpitch, y, dy, roll_, droll, z, dz, yaw_, dyaw;
+        x_estates_simp << x, dx, y, dy, z, dz, yaw, dyaw;
+
+
         // Calculate error
         error << desired_pose_.x - x, desired_pose_.y - y, desired_pose_.z - z, desired_pose_.yaw - yaw;
+        
+        // Check if the goal is reached within a tolerance
+        double tolerance = 0.05; // Define your tolerance
+        // if (fabs(error[0]) < tolerance && fabs(error[1]) < tolerance && fabs(error[2]) < tolerance && fabs(error[3]) < tolerance)
+        // {
+        //         ros::Duration settling_time = ros::Time::now() - start_time_;
+        //         ROS_INFO("Settling time: %f seconds", settling_time.toSec());
+        // }
+        if (fabs(error[2]) < tolerance && goal_reached_ == false)
+        {
+                ros::Duration settling_time = ros::Time::now() - start_time_;
+                ROS_INFO("Settling time: %f seconds", settling_time.toSec());
+                goal_reached_ = true;
+        }
+        
+        
         // Update integral error
+        // if (interrupt_control_)
+        // {
+        //     // ROS_INFO("Bumpless transfer: sincronizando integrador.");
+        //     // Sincronizar integrador para evitar saltos
+        //     Eigen::Vector4d u_current = Kx_simp * x_estates_simp;
+        //     integral_error = (u_current - error).cwiseQuotient(Ki_simp.diagonal()); // Ajusta o estado do integrador
+        //     ROS_INFO("Bumpless transfer: u_current = [%f, %f, %f, %f], error = [%f, %f, %f, %f], integral_error = [%f, %f, %f, %f]",
+        //              u_current[0], u_current[1], u_current[2], u_current[3],
+        //              error[0], error[1], error[2], error[3],
+        //              integral_error[0], integral_error[1], integral_error[2], integral_error[3]);            
+            
+        //     // Log errors
+        //     std::vector<std::variant<std::string, double>> data_error = {std::to_string(ros::Time::now().toSec()), 
+        //                                                                     "errors", 
+        //                                                                     error[0], 
+        //                                                                     integral_error[0],
+        //                                                                     error[1],
+        //                                                                     integral_error[1],
+        //                                                                     error[2],
+        //                                                                     integral_error[2],
+        //                                                                     error[3],
+        //                                                                     integral_error[3]};
+        //     csv_logger_error_->writeCSV(data_error);
+        //     return;
+        // }
 
         integral_error += error;
 
@@ -573,36 +761,58 @@ void sendSenoidComand(double amp1, double temp, const std::string& axis)
                                                                         integral_error[3]};
         csv_logger_error_->writeCSV(data_error);
 
+
         // Calculate control input
 
-        u = Kx * x_estates + Ki * integral_error;
-        
-        twist_msg.linear.x = u(0);
-        twist_msg.linear.y = u(1);
-        twist_msg.linear.z = u(2);
-        twist_msg.angular.z = u(3);
-        // twist_msg.linear.x = 0;
-        // twist_msg.linear.y = 0;
-        // twist_msg.linear.z = u(2);       
-        // twist_msg.angular.z = 0;
+        // u = Kx * x_estates + Ki * integral_error;
+        u = Kx_simp * x_estates_simp + Ki_simp * integral_error;
+        // u = -Kx_simp * x_estates_simp - Ki_simp * integral_error;
+        // Limites de saturação
+        Eigen::Vector4d u_max(1.0, 1.0, 1.0, 1.0); // Defina os limites
+        Eigen::Vector4d u_min(-1.0, -1.0, -1.0, -1.0);
+
+        for (int i = 0; i < u.size(); ++i)
+        {
+            if (u[i] > u_max[i])
+            {
+                u[i] = u_max[i];
+                integral_error[i] -= error[i]; // Previne windup
+                // integral_error[i] = 0.9*integral_error[i];
+            }
+            else if (u[i] < u_min[i])
+            {
+                u[i] = u_min[i];
+                integral_error[i] -= error[i]; 
+                // integral_error[i] = 0.9*integral_error[i]; // Previne windup
+            }
+        }
+        geometry_msgs::Twist control_cmd;
+        control_cmd.linear.x = u(0);
+        control_cmd.linear.y = u(1);
+        control_cmd.linear.z = u(2);
+        control_cmd.angular.z = u(3);
+        // control_cmd.linear.x = 0;
+        // control_cmd.linear.y = 0;
+        // control_cmd.linear.z = u(2);       
+        // control_cmd.angular.z = 0;
         // Publish the control input
-        publishCmdVel();
+        publishCmdVel(control_cmd);
         // ROS_INFO("Position received: x = %f, y = %f, z = %f", msg->pose.pose.position.x, msg->pose.pose.position.y, msg->pose.pose.position.z);
     }
-    void publishCmdVel()
+    void publishCmdVel(geometry_msgs::Twist twist_msg_)
     {
-        cmd_vel_pub_.publish(twist_msg);
-        writeLogs();
+        cmd_vel_pub_.publish(twist_msg_);
+        writeLogs(twist_msg_);
     }
-    void writeLogs()
+    void writeLogs(geometry_msgs::Twist twist_msg_)
     {
         std::string current_time = std::to_string(ros::Time::now().toSec());
         std::vector<std::variant<std::string, double>> data_u_control = {current_time, 
                                                                             "cmd_vel", 
-                                                                            twist_msg.linear.x, 
-                                                                            twist_msg.linear.y,
-                                                                            twist_msg.linear.z,
-                                                                            twist_msg.angular.z}; 
+                                                                            twist_msg_.linear.x, 
+                                                                            twist_msg_.linear.y,
+                                                                            twist_msg_.linear.z,
+                                                                            twist_msg_.angular.z}; 
         csv_logger_u_control_->writeCSV(data_u_control);
         std::vector<std::variant<std::string, double>> data_desired_trajectory = {current_time, 
                                                                                 "desired_trajectory", 

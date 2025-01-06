@@ -14,3 +14,5 @@ logs/
 src/ROSUtilities
 src/lar_gazebo
 src/natnet_ros_cpp
+*.csv
+*Zone.Identifier

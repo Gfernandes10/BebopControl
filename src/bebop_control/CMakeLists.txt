@@ -64,6 +64,8 @@ add_service_files(
   FILES
   SetReferencePose.srv
   SetCircPath.srv
+  SetHTCircPath.srv
+  SetDiagCircPath.srv
 )
 
 ## Generate actions in the 'action' folder
