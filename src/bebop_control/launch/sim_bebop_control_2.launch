@@ -19,5 +19,5 @@
     </node>
 <!-- Start Localization Package -->
   <node name="bebop_localization" pkg="bebop_localization" type="bebop_localization_node"  />
-
+    <node name="odometry_to_pose" pkg="bebop_localization" type="odometry_to_pose_node" output="screen"/>
 </launch>

@@ -53,17 +53,24 @@ public:
     bool enable_controller_ = false;
     std::atomic<bool> interrupt_control_{true};
     DesiredPose desired_pose_;
+    DesiredPose desired_velocity_;
+    DesiredPose desired_acceleration_;
     double circ_radius_;
     double circ_angular_velocity_;
     double circ_height_;
     ros::Timer trajectory_timer_;
     bool trajectory_timer_started_ = false;
     ros::Time start_time_;
-    bool goal_reached_ = true;
     bool circle_VT_path_ = false;
     bool circle_HT_path_ = false;
     bool circle_diag_path_ = false;
-
+    double gamma1, gamma2, gamma3, gamma4;
+    double gamma5, gamma6, gamma7, gamma8;
+    double tolerance = 0.05; // Tolerância para o erro
+    double continuous_time_required = 1.0; // Tempo contínuo em segundos
+    ros::Time last_within_tolerance_time;
+    bool within_tolerance = false;
+    bool goal_reached_ = false;
     //Messages Declaration
     std_msgs::Empty empty_msg;
     geometry_msgs::Twist twist_msg;
@@ -73,10 +80,17 @@ public:
     Eigen::VectorXd integral_error = Eigen::VectorXd::Zero(4);    
     Eigen::VectorXd error = Eigen::VectorXd::Zero(4);
     Eigen::VectorXd u = Eigen::VectorXd::Zero(4);
+    Eigen::VectorXd v = Eigen::VectorXd::Zero(4);
+    Eigen::VectorXd q_d_ponto = Eigen::VectorXd::Zero(4);
+    Eigen::VectorXd q_d_2ponto = Eigen::VectorXd::Zero(4);
     Eigen::Matrix<double, 4, 12> Kx;
     Eigen::Matrix<double, 4, 8> Kx_simp;
     Eigen::Matrix<double, 4, 4> Ki;
     Eigen::Matrix<double, 4, 4> Ki_simp;
+    Eigen::Matrix<double, 4, 4> GammaMatrix;
+    Eigen::Matrix<double, 4, 4> LambdaMatrix;
+
+
     //Loggers
     std::unique_ptr<CSVLogger> csv_logger_u_control_;
     std::unique_ptr<CSVLogger> csv_logger_desired_trajectory_;
@@ -86,7 +100,7 @@ public:
     {
         // Initialize parameters
         initializeParameters();
-        integral_error << 0, 0, 155, 0; //250
+        
 
         // Initialize publishers
         takeoff_pub_ = nh_.advertise<std_msgs::Empty>("bebop/takeoff", 10);
@@ -164,6 +178,22 @@ public:
         desired_pose_.y = 0.0;
         desired_pose_.z = 1.0;
         desired_pose_.yaw = 0.0;
+        desired_velocity_.x = 0.0;
+        desired_velocity_.y = 0.0;
+        desired_velocity_.z = 0.0;
+        desired_velocity_.yaw = 0.0;
+        desired_acceleration_.x = 0.0;
+        desired_acceleration_.y = 0.0;
+        desired_acceleration_.z = 0.0;
+        desired_acceleration_.yaw = 0.0;
+        gamma1 = 3.75;
+        gamma2 = 1.10;
+        gamma3 = 3.75;
+        gamma4 = 1.10;
+        gamma5 = 2.68;
+        gamma6 = 0.75;
+        gamma7 = 1,42;
+        gamma8 = 2.06;
         nh_.param("amp_ident_x", amp_ident_x_, 0.1);
         nh_.param("amp_ident_y", amp_ident_y_, 0.1);
         nh_.param("amp_ident_z", amp_ident_z_, 0.1);
@@ -182,6 +212,7 @@ public:
                 0.0, 0.001778, 0.0, 0.0, //0.00278
                 0.0, 0.0, 0.002574, 0.0, //0.002574
                 0.0, 0.0, 0.0, 0.00388; //0.0388
+        
         //Parametros ARDrone
         // Kx <<  -0.7636,-0.1476, -0.0087,-0.0062, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, //-0.7636, -0.1476, -0.0287, -0.0262
         //         0.0, 0.0, 0.0, 0.0,-0.5906,-0.1791, 0.0199,0.0130, 0.0, 0.0, 0.0, 0.0,
@@ -200,15 +231,29 @@ public:
                          0.0, -0.0301, 0.0, 0.0, 
                          0.0, 0.0, -0.0302, 0.0, //1.3239
                          0.0, 0.0, 0.0, -0.0318; 
+        
+        
         //LQR LMI
-        Kx_simp <<   -0.2069, -0.4843, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-                        0.0, 0.0, -0.2069, -0.4843, 0.0, 0.0, 0.0, 0.0,
-                        0.0, 0.0, 0.0, 0.0, -0.2081,  -0.5351, 0.0, 0.0, //-0.5572,  -3.2700
-                        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -0.1993, -0.2103; 
-        Ki_simp <<   0.0013, 0.0, 0.0, 0.0,
-                        0.0, 0.0013, 0.0, 0.0, 
-                        0.0, 0.0, 0.0013, 0.0, //0.0330
-                        0.0, 0.0, 0.0, 0.0012; 
+        // Gazebo
+        Kx_simp <<   -2.7069, -0.7843, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, // -1.9069, -1.0843 -2.7069, -0.7843,
+                        0.0, 0.0, -2.7069, -0.7843, 0.0, 0.0, 0.0, 0.0, // -1.9069, -1.0843  -2.7069, -0.7843,
+                        0.0, 0.0, 0.0, 0.0, -2.5081,  -0.8351, 0.0, 0.0, //-1.9081,  -0.8351 -2.5081,  -0.8351,
+                        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.9993, -0.8103;  //-1.9993, -0.8103
+        Ki_simp <<   0.0173, 0.0, 0.0, 0.0,//0.0083 0.0173
+                        0.0, 0.0173, 0.0, 0.0, //0.0083 0.0173
+                        0.0, 0.0, 0.0153, 0.0, //0.0113 0.0153
+                        0.0, 0.0, 0.0, 0.0112; //0.0112
+        integral_error << 0, 0, 170, 0; //155
+        //Real
+        // Kx_simp <<   -0.2069, -0.5843, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        //         0.0, 0.0, -0.2069, -0.5843, 0.0, 0.0, 0.0, 0.0,
+        //         0.0, 0.0, 0.0, 0.0, -0.2081,  -0.5351, 0.0, 0.0, //-0.5572,  -3.2700
+        //         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -0.1993, -0.2103; 
+        // Ki_simp <<   0.00013, 0.0, 0.0, 0.0,
+        //                 0.0, 0.00013, 0.0, 0.0, 
+        //                 0.0, 0.0, 0.00053, 0.0, //0.0130
+        //                 0.0, 0.0, 0.0, 0.00052; 
+        // integral_error << 0, 0, 415, 0; 
     }
     bool handleSetCircPathSrv(bebop_control::SetCircPath::Request& req, bebop_control::SetCircPath::Response& res)
     {
@@ -328,6 +373,14 @@ public:
             desired_pose_.y = circ_radius_ * sin(circ_angular_velocity_ * time);
             desired_pose_.z = circ_height_ + (circ_radius_/2) * sin(circ_angular_velocity_ * time);
             desired_pose_.yaw = 0.0;
+            desired_velocity_.x = -circ_radius_ * circ_angular_velocity_ * sin(circ_angular_velocity_ * time);
+            desired_velocity_.y = circ_radius_ * circ_angular_velocity_ * cos(circ_angular_velocity_ * time);
+            desired_velocity_.z = (circ_radius_/2) * circ_angular_velocity_ * cos(circ_angular_velocity_ * time);
+            desired_velocity_.yaw = 0.0;
+            desired_acceleration_.x = -circ_radius_ * pow(circ_angular_velocity_, 2) * cos(circ_angular_velocity_ * time);
+            desired_acceleration_.y = -circ_radius_ * pow(circ_angular_velocity_, 2) * sin(circ_angular_velocity_ * time);
+            desired_acceleration_.z = -(circ_radius_/2) * pow(circ_angular_velocity_, 2) * sin(circ_angular_velocity_ * time);
+            desired_acceleration_.yaw = 0.0;
         }
         else
         {
@@ -351,10 +404,27 @@ public:
             res.status = false;
             return false;
         }
+        if (circle_HT_path_ || circle_VT_path_ || circle_diag_path_)
+        {
+            ROS_INFO("Stopping existing trajectory timer");
+            circle_HT_path_ = false;
+            circle_VT_path_ = false;
+            circle_diag_path_ = false;
+            trajectory_timer_.stop();
+        }
         desired_pose_.x = req.x;
         desired_pose_.y = req.y;
         desired_pose_.z = req.z;
-        desired_pose_.yaw = req.heading;
+        desired_pose_.yaw = req.heading*3.14159/180;
+        desired_velocity_.x = 0.0;
+        desired_velocity_.y = 0.0;
+        desired_velocity_.z = 0.0;
+        desired_velocity_.yaw = 0.0;
+        desired_acceleration_.x = 0.0;
+        desired_acceleration_.y = 0.0;
+        desired_acceleration_.z = 0.0;
+        desired_acceleration_.yaw = 0.0;
+
         res.status = true;
         start_time_ = ros::Time::now();
         goal_reached_ = false;
@@ -376,7 +446,7 @@ public:
         // Set the new terminal settings
         tcsetattr(STDIN_FILENO, TCSANOW, &newt);
 
-        ros::Rate rate(200); // Set the loop frequency to 10 Hz
+        ros::Rate rate(100); // Set the loop frequency to 10 Hz
         static ros::Time last_key_time = ros::Time::now();
 
         while (ros::ok())
@@ -399,14 +469,18 @@ public:
             {                
                 if (enable_control_keyboard_)
                 {
-                    if ((ros::Time::now() - last_key_time).toSec() > 0.5)
-                    {
-                        // No key pressed for 0.2 seconds, reset twist message
-                        twist_msg.linear.x = 0.0;
-                        twist_msg.linear.y = 0.0;
-                        twist_msg.linear.z = 0.0;
-                        twist_msg.angular.z = 0.0;
-                    }
+                    // if ((ros::Time::now() - last_key_time).toSec() > 0.5)
+                    // {
+                    //     // No key pressed for 0.2 seconds, reset twist message
+                    //     twist_msg.linear.x = 0.0;
+                    //     twist_msg.linear.y = 0.0;
+                    //     twist_msg.linear.z = 0.0;
+                    //     twist_msg.angular.z = 0.0;
+                    // }
+                    twist_msg.linear.x = 0.0;
+                    twist_msg.linear.y = 0.0;
+                    twist_msg.linear.z = 0.0;
+                    twist_msg.angular.z = 0.0;
                 }
             }
             else
@@ -512,6 +586,7 @@ public:
                             twist_msg.linear.y = 0.0;
                             twist_msg.linear.z = 0.0;
                             twist_msg.angular.z = 0.0;
+                            goal_reached_ = false;
                         case 'h':
                             helpCommands();
                             break;
@@ -585,7 +660,7 @@ public:
             }
 
             publishCmdVel(twist_msg);
-            ros::Duration(0.2).sleep();
+            ros::Duration(0.01).sleep();
         }
 
         ROS_INFO("Finished senoid command for axis: %s", axis.c_str());
@@ -645,7 +720,7 @@ public:
                     // cmd_vel_pub_.publish(twist_msg); // Publica o comando
 
                     // Sleep for a short duration to avoid spamming the log
-                    ros::Duration(0.1).sleep();
+                    ros::Duration(0.01).sleep();
                 }
 
                 positive = !positive; // Alterna o sinal ao final do período
@@ -704,47 +779,26 @@ public:
         // Calculate error
         error << desired_pose_.x - x, desired_pose_.y - y, desired_pose_.z - z, desired_pose_.yaw - yaw;
         
-        // Check if the goal is reached within a tolerance
-        double tolerance = 0.05; // Define your tolerance
-        // if (fabs(error[0]) < tolerance && fabs(error[1]) < tolerance && fabs(error[2]) < tolerance && fabs(error[3]) < tolerance)
-        // {
-        //         ros::Duration settling_time = ros::Time::now() - start_time_;
-        //         ROS_INFO("Settling time: %f seconds", settling_time.toSec());
-        // }
-        if (fabs(error[2]) < tolerance && goal_reached_ == false)
-        {
-                ros::Duration settling_time = ros::Time::now() - start_time_;
-                ROS_INFO("Settling time: %f seconds", settling_time.toSec());
-                goal_reached_ = true;
+        // Verifique se o erro está dentro da tolerância
+        if (fabs(error[0]) < tolerance && fabs(error[1]) < tolerance && fabs(error[2]) < tolerance && fabs(error[3]) < tolerance) {
+            if (!within_tolerance) {
+                // Se o erro entrou na faixa de tolerância, registre o tempo
+                last_within_tolerance_time = ros::Time::now();
+                within_tolerance = true;
+            } else {
+                // Verifique se o erro permaneceu dentro da tolerância por tempo suficiente
+                ros::Duration time_within_tolerance = ros::Time::now() - last_within_tolerance_time;
+                if (time_within_tolerance.toSec() >= continuous_time_required && !goal_reached_) {
+                    ros::Duration settling_time = ros::Time::now() - start_time_;
+                    ROS_INFO("Settling time: %f seconds", settling_time.toSec());
+                    goal_reached_ = true;
+                }
+            }
+        } else {
+            // Se o erro sair da faixa de tolerância, redefina a variável de rastreamento
+            within_tolerance = false;
         }
         
-        
-        // Update integral error
-        // if (interrupt_control_)
-        // {
-        //     // ROS_INFO("Bumpless transfer: sincronizando integrador.");
-        //     // Sincronizar integrador para evitar saltos
-        //     Eigen::Vector4d u_current = Kx_simp * x_estates_simp;
-        //     integral_error = (u_current - error).cwiseQuotient(Ki_simp.diagonal()); // Ajusta o estado do integrador
-        //     ROS_INFO("Bumpless transfer: u_current = [%f, %f, %f, %f], error = [%f, %f, %f, %f], integral_error = [%f, %f, %f, %f]",
-        //              u_current[0], u_current[1], u_current[2], u_current[3],
-        //              error[0], error[1], error[2], error[3],
-        //              integral_error[0], integral_error[1], integral_error[2], integral_error[3]);            
-            
-        //     // Log errors
-        //     std::vector<std::variant<std::string, double>> data_error = {std::to_string(ros::Time::now().toSec()), 
-        //                                                                     "errors", 
-        //                                                                     error[0], 
-        //                                                                     integral_error[0],
-        //                                                                     error[1],
-        //                                                                     integral_error[1],
-        //                                                                     error[2],
-        //                                                                     integral_error[2],
-        //                                                                     error[3],
-        //                                                                     integral_error[3]};
-        //     csv_logger_error_->writeCSV(data_error);
-        //     return;
-        // }
 
         integral_error += error;
 
@@ -786,23 +840,54 @@ public:
                 // integral_error[i] = 0.9*integral_error[i]; // Previne windup
             }
         }
+
+        // Calculate Velocity Command
+        LambdaMatrix << gamma2*cos(yaw), -gamma4*sin(yaw),      0, 0,
+                        gamma2*sin(yaw),  gamma4*cos(yaw),      0, 0,
+                                      0,                0, gamma6, 0,
+                                      0,                0,      0, gamma8;
+        GammaMatrix  << gamma1*cos(yaw), -gamma3*sin(yaw),      0, 0,
+                        gamma1*sin(yaw),  gamma3*cos(yaw),      0, 0,
+                                      0,                0, gamma5, 0,
+                                      0,                0,      0, gamma7;
+        Eigen::Matrix4d GammaMatrixInv = GammaMatrix.inverse();
+
+        q_d_ponto << desired_velocity_.x, desired_velocity_.y, desired_velocity_.z, desired_velocity_.yaw;
+        q_d_2ponto << desired_acceleration_.x, desired_acceleration_.y, desired_acceleration_.z, desired_acceleration_.yaw;
+        v = GammaMatrixInv*(u + q_d_2ponto - LambdaMatrix*q_d_ponto);
+
         geometry_msgs::Twist control_cmd;
-        control_cmd.linear.x = u(0);
-        control_cmd.linear.y = u(1);
-        control_cmd.linear.z = u(2);
-        control_cmd.angular.z = u(3);
+        control_cmd.linear.x = v(0);
+        control_cmd.linear.y = v(1);
+        control_cmd.linear.z = v(2);
+        control_cmd.angular.z = v(3);
+        // control_cmd.linear.x = 0;
+        // control_cmd.linear.y = 0;
+        // control_cmd.linear.z = u(2);       
+        // control_cmd.angular.z = 0;
+        // control_cmd.linear.x = u(0);
+        // control_cmd.linear.y = u(1);
+        // control_cmd.linear.z = u(2);
+        // control_cmd.angular.z = u(3);
         // control_cmd.linear.x = 0;
         // control_cmd.linear.y = 0;
         // control_cmd.linear.z = u(2);       
         // control_cmd.angular.z = 0;
         // Publish the control input
-        publishCmdVel(control_cmd);
+        // cmd_vel_pub_.publish(control_cmd);
+        // writeLogs(control_cmd);
+        publishCmdVel(control_cmd, true);
         // ROS_INFO("Position received: x = %f, y = %f, z = %f", msg->pose.pose.position.x, msg->pose.pose.position.y, msg->pose.pose.position.z);
     }
-    void publishCmdVel(geometry_msgs::Twist twist_msg_)
+    void publishCmdVel(geometry_msgs::Twist twist_msg_, bool enablelog = false)
     {
+
         cmd_vel_pub_.publish(twist_msg_);
-        writeLogs(twist_msg_);
+        if (enablelog)
+        {
+            writeLogs(twist_msg_);
+        }
+        // writeLogs(twist_msg_);
     }
     void writeLogs(geometry_msgs::Twist twist_msg_)
     {
