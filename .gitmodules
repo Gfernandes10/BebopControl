@@ -4,8 +4,5 @@
 
 [submodule "src/aruco_ros"]
 	path = src/aruco_ros
-	url = https://github.com/your-repo/aruco_ros.git
+	url = https://github.com/pal-robotics/aruco_ros.git
 
-[submodule "src/interface_bebop"]
-	path = src/interface_bebop
-	url = https://github.com/your-repo/interface_bebop.git
