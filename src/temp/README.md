@@ -1,3 +1,0 @@
-# bebop_localization
-
-teste
