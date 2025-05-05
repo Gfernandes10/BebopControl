@@ -2,9 +2,6 @@
 - git: {local-name: iROS_drone, uri: 'https://github.com/Gfernandes10/iROS_drone.git', version: 'noetic'}
 - git: {local-name: parrot_arsdk, uri: 'https://github.com/antonellabarisic/parrot_arsdk.git', version: 'noetic_dev'}
 - git: {local-name: bebop_autonomy, uri: 'https://github.com/Gfernandes10/bebop_autonomy.git', version: 'indigo-devel'}
-- git: {local-name: bebop_localization, uri: 'https://github.com/Gfernandes10/bebop_localization.git', version: 'main'}
 - git: {local-name: ROSUtilities, uri: 'https://github.com/Gfernandes10/ROSUtilities.git', version: 'main'}
 - git: {local-name: lar_gazebo, uri: https://github.com/Gfernandes10/lar_gazebo.git, version: 'noetic'}
 - git: {local-name: natnet_ros_cpp, uri: https://github.com/L2S-lab/natnet_ros_cpp,  version: 'main'}
-- git: {local-name: interface_bebop, uri: 'https://github.com/Gfernandes10/interface_bebop.git', version: 'master'}
-- git: {local-name: aruco_ros, uri: 'https://github.com/pal-robotics/aruco_ros.git', version: 'noetic-devel'}
