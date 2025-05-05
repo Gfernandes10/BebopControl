@@ -1,6 +1,5 @@
 # BebopControl Workspace
 
-
 ## Installation Steps
 
 Follow these steps to set up the workspace:
@@ -11,6 +10,9 @@ git clone https://github.com/Gfernandes10/BebopControl.git
 
 # Navigate to the workspace
 cd BebopControl
+
+# Initialize and update the submodules:
+git submodule update --init --recursive
 
 # Add environment variables to your bashrc
 echo 'export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:~/BebopControl/devel/lib/parrot_arsdk' >> ~/.bashrc
@@ -34,4 +36,5 @@ catkin build
 # Source the workspace setup file
 source devel/setup.bash
 ```
+
 

@@ -1,3 +1,11 @@
 [submodule "src/iROS_drone"]
 	path = src/iROS_drone
 	url = https://github.com/Gfernandes10/iROS_drone.git
+
+[submodule "src/aruco_ros"]
+	path = src/aruco_ros
+	url = https://github.com/your-repo/aruco_ros.git
+
+[submodule "src/interface_bebop"]
+	path = src/interface_bebop
+	url = https://github.com/your-repo/interface_bebop.git
