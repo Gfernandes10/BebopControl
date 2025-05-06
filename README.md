@@ -22,6 +22,12 @@ This repository contains the implementation of the robust LQR controller and the
 To set up the workspace, run the following command:
 
 ```bash
+# Clone the repository
+git clone https://github.com/Gfernandes10/BebopControl.git
+
+# Navigate to the workspace
+cd BebopControl
+
 bash install.sh
 ```
 
@@ -48,7 +54,7 @@ For a clearer view of the command logs, it is recommended to execute the followi
 
 2. In the second terminal, launch the drone control interface:
    ```bash
-   roslaunch interface_bebop sim_bebop_control.launch
+   roslaunch bebop_control sim_bebop_control.launch
    ```
 
 Use the second terminal (where `sim_bebop_control.launch` is running) to control the drone. The first terminal, which starts Gazebo, generates an excessive amount of log messages, making it less suitable for monitoring commands.

@@ -1,5 +1,8 @@
 #!/bin/bash
 sudo apt install python3-pip -y
+sudo apt install python3-rosdep python3-rosinstall python3-rosinstall-generator python3-wstool build-essential -y
+sudo apt install ros-noetic-catkin -y 
+sudo apt install python3-catkin-tools -y
 
 # Initialize and update the submodules
 git submodule update --init --recursive
@@ -22,6 +25,8 @@ wstool update -t src
 sudo apt update
 
 # Install dependencies using rosdep
+sudo rosdep init
+rosdep update
 rosdep install --from-paths src --ignore-src -r -y
 
 # Source the updated bashrc
