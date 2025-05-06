@@ -17,42 +17,23 @@ This repository contains the implementation of the robust LQR controller and the
 - **Simulation Tools**: Scripts and configurations for simulating the drone's behavior.
 - **Workspace Structure**: This repository is designed to function as a ROS workspace, making it easy to build and run the provided packages.
 
-## Installation Steps
+## Installation
 
-Follow these steps to set up the workspace:
+To set up the workspace, run the following command:
 
 ```bash
-# Clone the repository
-git clone https://github.com/Gfernandes10/BebopControl.git
-
-# Navigate to the workspace
-cd BebopControl
-
-# Initialize and update the submodules:
-git submodule update --init --recursive
-
-# Add environment variables to your bashrc
-echo 'export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:~/BebopControl/devel/lib/parrot_arsdk' >> ~/.bashrc
-echo 'export MY_WORKSPACE_NAME="BebopControl"' >> ~/.bashrc
-
-# Update workspace dependencies
-wstool update -t src
-
-# Update system packages
-sudo apt update
-
-# Install dependencies using rosdep
-rosdep install --from-paths src --ignore-src -r -y
-
-# Source the updated bashrc
-source ~/.bashrc
-
-# Build the workspace
-catkin build
-
-# Source the workspace setup file
-source devel/setup.bash
+bash install.sh
 ```
+
+This script will:
+
+1. Initialize and update the submodules.
+2. Add necessary environment variables to your `~/.bashrc`.
+3. Update workspace dependencies using `wstool`.
+4. Update system packages.
+5. Install dependencies using `rosdep`.
+6. Source the updated `~/.bashrc`.
+7. Build the workspace using `catkin build`.
 
 ## Running the Workspace
 
